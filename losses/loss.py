@@ -18,9 +18,7 @@ class L2Loss(nn.Module):
         super(L2Loss, self).__init__()
         self.div_element = div_element
     def forward(self, output, target):
-        if output.size() == 4:
-            output = torch.sum(output, dim=1)
-        loss = torch.sum(torch.pow(torch.add(output, -1, target), 2) )
+        loss = torch.sum(torch.pow(output-target, 2) )
         if self.div_element:
             loss = loss / output.numel()
         else:

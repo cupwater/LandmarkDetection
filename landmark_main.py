@@ -129,7 +129,6 @@ def train(trainloader, model, criterion, optimizer, use_cuda):
         targets = torch.autograd.Variable(targets)
         
         outputs = model(inputs)
-        outputs = torch.sum(outputs, dim=1)
 
         loss = criterion(outputs, targets)
         losses.update(loss.item(), inputs.size(0))
@@ -167,7 +166,6 @@ def test(testloader, model, criterion, use_cuda):
             inputs, volatile=True), torch.autograd.Variable(targets)
         # compute output
         outputs = model(inputs)
-        outputs = torch.sum(outputs, dim=1)
         loss = criterion(outputs, targets)
         losses.update(loss.item(), inputs.size(0))
 
@@ -202,5 +200,7 @@ if __name__ == '__main__':
     # model related, including  Architecture, path, datasets
     parser.add_argument('--config-file', type=str,
                         default='experiments/template/landmark_detection_template.yaml')
+    parser.add_argument('--gpu-id', type=str, default='0')
     args = parser.parse_args()
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     main(args.config_file)
