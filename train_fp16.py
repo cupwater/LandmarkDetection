@@ -11,10 +11,15 @@ import yaml
 
 import torch
 import torch.nn as nn
-import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.utils.data as data
+
+import torch.multiprocessing as mp
+import torch.distributed as dist
+from apex.parallel import DistributedDataParallel as DDP
+
+
 from augmentation.medical_augment import LmsDetectTrainTransform, LmsDetectTestTransform
 
 import models
@@ -30,21 +35,41 @@ use_cuda = False
 def main(config_file):
     global state, best_loss, use_cuda
 
+    # initial distributed settings
+    try:
+        world_size = int(os.environ['WORLD_SIZE'])
+        rank = int(os.environ['RANK'])
+        dist_url = "tcp://{}:{}".format(os.environ["MASTER_ADDR"], os.environ["MASTER_PORT"])
+    except KeyError:
+        world_size = 1
+        rank = 0
+        dist_url = "tcp://127.0.0.1:12584"
+    dist.init_process_group(backend='nccl', init_method=dist_url, rank=rank, world_size=world_size)
+    # setup_distributed()
+    rank = int(os.environ["RANK"])
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    torch.cuda.set_device(local_rank)
+
     # parse config of model training
     with open(config_file) as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
     common_config = config['common']
 
-    state['lr'] = common_config['lr']
-    if not os.path.isdir(common_config['save_path']):
-        mkdir_p(common_config['save_path'])
-    use_cuda = torch.cuda.is_available()
+    if rank == 0:
+        if not os.path.isdir(common_config['save_path']):
+            mkdir_p(common_config['save_path'])
+        # logger
+        title = 'Chest landamrks detection using' + \
+            common_config['arch']
+        logger = Logger(os.path.join(
+            common_config['save_path'], 'log.txt'), title=title)
+        logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss'])
 
     augment_config = config['augmentation']
     # Dataset and Dataloader
     transform_train = LmsDetectTrainTransform(augment_config['rotate_angle'], augment_config['offset'])
     transform_test = LmsDetectTestTransform()
-    
     data_config = config['dataset']
     print('==> Preparing dataset %s' % data_config['type'])
     # create dataset for training and testing
@@ -55,22 +80,28 @@ def main(config_file):
         data_config['test_list'], data_config['test_meta'], transform_test,
         prefix=data_config['prefix'])
 
-    # create dataloader for training and testing
-    trainloader = data.DataLoader(
-        trainset, batch_size=common_config['train_batch'], shuffle=True, num_workers=5)
-    testloader = data.DataLoader(
-        testset, batch_size=common_config['train_batch'], shuffle=False, num_workers=5)
+    train_sampler = torch.utils.data.distributed.DistributedSampler(
+        trainset, shuffle=True)
+    test_sampler = torch.utils.data.distributed.DistributedSampler(
+        testset, shuffle=False)
+    
+    trainloader = dataset.DataLoaderX(local_rank=local_rank, dataset=trainset, batch_size=common_config['train_batch'],
+        sampler=train_sampler, num_workers=4, pin_memory=True, drop_last=True)
+    testloader = dataset.DataLoaderX(local_rank=local_rank, dataset=testset, batch_size=common_config['test_batch'],
+        sampler=test_sampler, num_workers=4, pin_memory=True, drop_last=False)
 
     # Model
     print("==> creating model '{}'".format(common_config['arch']))
     model = models.__dict__[common_config['arch']](
         num_classes=data_config['num_classes'])
-    
-    if use_cuda:
-        model = model.cuda()
-    cudnn.benchmark = True
+    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model).to(local_rank)
+    for ps in model.parameters():
+        dist.broadcast(ps, 0)
+    model = torch.nn.parallel.DistributedDataParallel(
+        module=model, broadcast_buffers=False, device_ids=[local_rank])
 
     # optimizer and scheduler
+    state['lr'] = common_config['lr']
     criterion = losses.__dict__[config['loss_config']['type']]()
     optimizer = optim.SGD(
         filter(
@@ -79,13 +110,6 @@ def main(config_file):
         lr=common_config['lr'],
         momentum=0.9,
         weight_decay=common_config['weight_decay'])
-
-    # logger
-    title = 'Chest landamrks detection using' + \
-        common_config['arch']
-    logger = Logger(os.path.join(
-        common_config['save_path'], 'log.txt'), title=title)
-    logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss'])
 
     # Creates a GradScaler once at the beginning of training.
     scaler = torch.cuda.amp.GradScaler(enabled=True)
@@ -102,16 +126,18 @@ def main(config_file):
         # save model
         is_best = test_loss < best_loss
         best_loss = max(test_loss, best_loss)
-        save_checkpoint({
-            'epoch': epoch + 1,
-            'state_dict': model.state_dict(),
-            'best_loss': best_loss,
-            'optimizer': optimizer.state_dict(),
-        }, is_best, save_path=common_config['save_path'])
+        
+        if rank == 0:
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'state_dict': model.state_dict(),
+                'best_loss': best_loss,
+                'optimizer': optimizer.state_dict(),
+            }, is_best, save_path=common_config['save_path'])
 
-    logger.close()
-    print('Best acc:')
-    print(best_acc)
+    if rank == 0:
+        logger.close()
+        print('Best acc:' + str(best_loss))
 
 
 def train(trainloader, model, criterion, optimizer, use_cuda, scaler):
@@ -133,7 +159,6 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler):
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
-
         with torch.cuda.amp.autocast():
             outputs = model(inputs)
             loss = criterion(outputs, targets)
@@ -150,11 +175,8 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler):
         scaler.update()
 
         losses.update(loss.item(), inputs.size(0))
-        
-        loss.backward()
-        optimizer.step()
-
-        progress_bar(batch_idx, len(trainloader), 'Loss: %.2f' % (losses.avg))
+        if int(os.environ['RANK']) == 0:
+            progress_bar(batch_idx, len(trainloader), 'Loss: %.2f' % (losses.avg))
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -219,7 +241,6 @@ if __name__ == '__main__':
     # model related, including  Architecture, path, datasets
     parser.add_argument('--config-file', type=str,
                         default='experiments/template/landmark_detection_template.yaml')
-    parser.add_argument('--gpu-id', type=str, default='0')
+    parser.add_argument('--local_rank', type=int, default=0, help='local_rank')
     args = parser.parse_args()
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     main(args.config_file)
