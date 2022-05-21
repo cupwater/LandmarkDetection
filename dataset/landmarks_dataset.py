@@ -12,7 +12,7 @@ import torch
 from torch.utils.data import Dataset
 import pdb
 
-from .util import gaussianHeatmap
+from util import gaussianHeatmap
 
 __all__ = ['ChestLandmarkDataset']
 
@@ -63,9 +63,9 @@ class ChestLandmarkDataset(Dataset):
 
 
 if __name__ == "__main__":
-    prefix = 'data/landmarks/imgs'
-    img_list = 'data/landmarks/img_list.txt'
-    meta = 'data/landmarks/landmarks.txt'
+    prefix = 'data/26_landmarks'
+    img_list = 'data/imglist_filter_train.txt'
+    meta = 'data/lms_filter_train.txt'
 
     import sys
     sys.path.insert(1, 'augmentation')
@@ -75,7 +75,7 @@ if __name__ == "__main__":
 
 
     for i in range(chest_dataset.__len__()):
-
+        print(i)
         image, lms_heatmap = chest_dataset.__getitem__(i)
         image, lms_heatmap = image.numpy(), lms_heatmap.numpy()
 
@@ -89,4 +89,6 @@ if __name__ == "__main__":
         # pdb.set_trace()
         cv2.imshow('heatmap', lms_heatmap)
         cv2.imshow('image', image)
-        key=cv2.waitKey(500)
+        key=cv2.waitKey(-1)
+        if key != 27:
+            continue

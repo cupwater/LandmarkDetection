@@ -42,7 +42,7 @@ def main(config_file):
 
     augment_config = config['augmentation']
     # Dataset and Dataloader
-    transform_train = LmsDetectTrainTransform(augment_config['rotate_angle', augment_config['offset']])
+    transform_train = LmsDetectTrainTransform(augment_config['rotate_angle'], augment_config['offset'])
     transform_test = LmsDetectTestTransform()
     
     data_config = config['dataset']
