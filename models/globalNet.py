@@ -1,7 +1,16 @@
+'''
+Author: Peng Bo
+Date: 2022-04-27 16:09:11
+LastEditTime: 2022-05-21 18:42:10
+Description: 
+
+'''
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+__all__ = ['globalNet']
 
 class myConv2d(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=1):
@@ -31,34 +40,24 @@ class dilatedConv(nn.Module):
         return self.relu(self.bn(self.conv(x)))
 
 
-class GlobalNet(nn.Module):
-    def __init__(self, in_channels, out_channels, scale_factor=0.25, kernel_size=3, dilations=None):
-        super(GlobalNet, self).__init__()
-        self.scale_factor = scale_factor
-        if not isinstance(in_channels, list):
-            in_channels = [in_channels]
-        if not isinstance(out_channels, list):
-            out_channels = [out_channels]
-        mid_channels = 128
-        if dilations is None:
-            dilations = [1, 2, 5]
-        for i, n_chan in enumerate(in_channels):
-            setattr(self, 'in{i}'.format(i=i),
-                    myConv2d(n_chan, mid_channels, 3))
-        for i, n_chan in enumerate(out_channels):
-            setattr(self, 'out{i}'.format(i=i),
-                    myConv2d(mid_channels, n_chan, 1))
-            convs = [dilatedConv(mid_channels, mid_channels,
-                                 kernel_size, dilation) for dilation in dilations]
-            convs = nn.Sequential(*convs)
-            setattr(self, 'convs{}'.format(i), convs)
+class globalNet(nn.Module):
+    def __init__(self, in_channels, out_channels, scale_factor=0.25, kernel_size=3):
+        super(globalNet, self).__init__()
 
-    def forward(self, x, task_idx=0):
+        self.scale_factor = scale_factor
+        mid_channels = 128
+        self.in_conv = myConv2d(in_channels+out_channels, mid_channels, 1)
+        self.dilated_conv = dilatedConv(mid_channels, mid_channels, kernel_size, dilation=5)
+        self.out_conv = myConv2d(mid_channels, out_channels, 1)
+
+    def forward(self, x):
         size = x.size()[2:]
         sf = self.scale_factor
         x = F.interpolate(x, scale_factor=sf)
-        x = getattr(self, 'in{}'.format(task_idx))(x)
-        x = getattr(self, 'convs{}'.format(task_idx))(x)
-        x = getattr(self, 'out{}'.format(task_idx))(x)
+
+        x = self.in_conv(x)
+        x = self.dilated_conv(x)
+        x = self.out_conv(x)
+
         x = F.interpolate(x, size=size)
-        return {'output': torch.sigmoid(x)}
+        return torch.sigmoid(x)

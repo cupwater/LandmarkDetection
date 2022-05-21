@@ -1,6 +1,6 @@
 '''
 Author: Pengbo
-LastEditTime: 2022-05-15 20:59:31
+LastEditTime: 2022-05-21 18:59:00
 Description: augmentation for landmark detection of medical image
 
 '''
@@ -64,15 +64,15 @@ def flip(axis=1):
     return func
 
 
-def LmsDetectTrainTransform(rotate_limit=15, translate_limit=[15, 15]):
+def LmsDetectTrainTransform(rotate_angle=15, offset=[15, 15]):
     transform_list = []
     if np.random.rand() < 0.5:
         transform_list.append(flip(1))
     if np.random.rand() < 0.5:
-        transform_list.append(rotate(np.random.rand()*rotate_limit))
+        transform_list.append(rotate(np.random.rand()*rotate_angle))
     if np.random.rand() < 0.5:
-        rorate_x = int(np.random.rand()*translate_limit[0])
-        rorate_y = int(np.random.rand()*translate_limit[1])
+        rorate_x = int(np.random.rand()*offset[0])
+        rorate_y = int(np.random.rand()*offset[1])
         transform_list.append(translate([rorate_x, rorate_y]))
 
     def trans(*imgs):

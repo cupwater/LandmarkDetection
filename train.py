@@ -40,11 +40,12 @@ def main(config_file):
         mkdir_p(common_config['save_path'])
     use_cuda = torch.cuda.is_available()
 
-    data_config = config['dataset']
+    augment_config = config['augmentation']
     # Dataset and Dataloader
-    transform_train = LmsDetectTrainTransform()
+    transform_train = LmsDetectTrainTransform(augment_config['rotate_angle', augment_config['offset']])
     transform_test = LmsDetectTestTransform()
     
+    data_config = config['dataset']
     print('==> Preparing dataset %s' % data_config['type'])
     # create dataset for training and testing
     trainset = dataset.__dict__[data_config['type']](
