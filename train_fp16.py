@@ -10,18 +10,11 @@ import time
 import yaml
 
 import torch
-import torch.nn as nn
-import torch.backends.cudnn as cudnn
 import torch.optim as optim
-import torch.utils.data as data
-
-import torch.multiprocessing as mp
 import torch.distributed as dist
-from apex.parallel import DistributedDataParallel as DDP
 
 
 from augmentation.medical_augment import LmsDetectTrainTransform, LmsDetectTestTransform
-
 import models
 import dataset
 from utils import Logger, AverageMeter, mkdir_p, progress_bar
@@ -30,7 +23,6 @@ import losses
 state = {}
 best_loss = 0
 use_cuda = False
-
 
 def main(config_file):
     global state, best_loss, use_cuda
@@ -45,11 +37,11 @@ def main(config_file):
         rank = 0
         dist_url = "tcp://127.0.0.1:12584"
     dist.init_process_group(backend='nccl', init_method=dist_url, rank=rank, world_size=world_size)
-    # setup_distributed()
     rank = int(os.environ["RANK"])
     local_rank = int(os.environ["LOCAL_RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
     torch.cuda.set_device(local_rank)
+
 
     # parse config of model training
     with open(config_file) as f:
@@ -66,6 +58,8 @@ def main(config_file):
             common_config['save_path'], 'log.txt'), title=title)
         logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss'])
 
+
+    # initial dataset and dataloader
     augment_config = config['augmentation']
     # Dataset and Dataloader
     transform_train = LmsDetectTrainTransform(augment_config['rotate_angle'], augment_config['offset'])
@@ -79,12 +73,10 @@ def main(config_file):
     testset = dataset.__dict__[data_config['type']](
         data_config['test_list'], data_config['test_meta'], transform_test,
         prefix=data_config['prefix'])
-
     train_sampler = torch.utils.data.distributed.DistributedSampler(
         trainset, shuffle=True)
     test_sampler = torch.utils.data.distributed.DistributedSampler(
         testset, shuffle=False)
-    
     trainloader = dataset.DataLoaderX(local_rank=local_rank, dataset=trainset, batch_size=common_config['train_batch'],
         sampler=train_sampler, num_workers=4, pin_memory=True, drop_last=True)
     testloader = dataset.DataLoaderX(local_rank=local_rank, dataset=testset, batch_size=common_config['test_batch'],
@@ -94,11 +86,12 @@ def main(config_file):
     print("==> creating model '{}'".format(common_config['arch']))
     model = models.__dict__[common_config['arch']](
         num_classes=data_config['num_classes'])
-    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model).to(local_rank)
+    process_group = torch.distributed.new_group(list(range(world_size)))
+    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model, process_group).to(local_rank)
     for ps in model.parameters():
         dist.broadcast(ps, 0)
     model = torch.nn.parallel.DistributedDataParallel(
-        module=model, broadcast_buffers=False, device_ids=[local_rank])
+        module=model, broadcast_buffers=True, device_ids=[local_rank])
 
     # optimizer and scheduler
     state['lr'] = common_config['lr']
@@ -116,8 +109,9 @@ def main(config_file):
     # Train and val
     for epoch in range(common_config['epoch']):
         adjust_learning_rate(optimizer, epoch, common_config)
-        print('\nEpoch: [%d | %d] LR: %f' %
-              (epoch + 1, common_config['epoch'], state['lr']))
+        if rank == 0:
+            print('\nEpoch: [%d | %d] LR: %f' %
+                (epoch + 1, common_config['epoch'], state['lr']))
         train_loss = train(
             trainloader, model, criterion, optimizer, use_cuda, scaler)
         test_loss = test(testloader, model, criterion, use_cuda)
