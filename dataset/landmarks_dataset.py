@@ -5,6 +5,8 @@ Description: Landmarks Detection dataset
 
 '''
 import os
+import time
+
 import numpy as np
 import cv2
 
@@ -12,7 +14,8 @@ import torch
 from torch.utils.data import Dataset
 import pdb
 
-from util import gaussianHeatmap
+from .util import gaussianHeatmap
+import matplotlib.pyplot as plt
 
 __all__ = ['ChestLandmarkDataset']
 
@@ -45,17 +48,38 @@ class ChestLandmarkDataset(Dataset):
         img = self.img_data_list[index]
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
         w, h, _ = img.shape
+        lms_img = img.copy()
         img = img.transpose((2, 0, 1))
-        
-        # get the coordinates of landmark in image 
+
+        # get the coordinates of landmark in image
         lms = self.lms_list[index]
-        lms = [ (int(lms[i]*w), int(lms[i+1]*h)) for i in range(int(len(lms)/2)) ]
+        # lms = [ (int(lms[i]*w), int(lms[i+1]*h)) for i in range(0, int(len(lms)), 2)]
+        lms = [ (int(lms[i+1]*h), int(lms[i]*w)) for i in range(0, int(len(lms)), 2)]
+
         lms_heatmap = [self.genHeatmap(point, (w, h)) for point in lms]
         lms_heatmap = np.array(lms_heatmap)
+
+        ### 将 landmarks 标记到图像 pic 上，并输出每个 landmark 的 heatmap
+        if not os.path.exists('./runs/gaussianHeatmap'):
+            os.makedirs('./runs/gaussianHeatmap')
+        exe = str(time.time())[-6:]
+
+        from dataset.util import getPointsFromHeatmap
+        points = getPointsFromHeatmap(lms_heatmap)
+        # for i,num,lm in zip(lms_heatmap, range(int(len(lms_heatmap))), lms):
+        #     # 生成的 lms_heatmap 中，坐标x，y对换了
+        #     plt.imsave('./runs/gaussianHeatmap/{}_{}_{}_{}.png'.format(str(exe),num,lm[0],lm[1]), i)
+
+        # for p in points:
+        #     # 回归出的坐标是正确的
+        #     cv2.circle(lms_img, (int(p[1]),int(p[0])), 2, (0,255,0), 2)
+        # plt.imsave('./runs/gaussianHeatmap/{}.png'.format(str(exe)), lms_img)
+        ###
 
         img, lms_heatmap = self.transform(img, lms_heatmap)
         img, lms_heatmap = torch.FloatTensor(img), torch.FloatTensor(lms_heatmap)
 
+        # img 正，lms_heatmap 正
         return img, lms_heatmap
 
     def __len__(self):

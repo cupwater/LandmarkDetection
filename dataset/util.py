@@ -41,10 +41,12 @@ def gaussianHeatmap(sigma, dim: int = 2, nsigma: int = 3):
         bboxs = [(max(0, point[ax]-radius), min(shape[ax], point[ax]+radius))
                  for ax in range(dim)]
         img_sls = tuple([slice(i, j) for i, j in bboxs])
+
         mask_begins = [max(0, radius-point[ax]) for ax in range(dim)]
         mask_sls = tuple([slice(beg, beg+j-i)
                           for beg, (i, j) in zip(mask_begins, bboxs)])
         ret[img_sls] = mask[mask_sls]
+
         return ret
     return genHeatmap
 

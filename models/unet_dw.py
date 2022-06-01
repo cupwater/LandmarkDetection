@@ -138,4 +138,5 @@ class UNetDW(nn.Module):
         x = self.up3(x, x2)
         x = self.up4(x, x1)
         logits =self.out1(x)
-        return torch.sigmoid(logits)
+        # return torch.sigmoid(logits)
+        return logits

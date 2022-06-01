@@ -10,8 +10,16 @@ from torch.nn import Module
 from torch import nn
 from torch.nn import functional as F
 
-__all__ = ['L2Loss', 'BCELoss', 'DiceLoss', 'BCEFocalLoss', 'FocalLoss', 'ConfidentMSELoss']
+__all__ = ['L2Loss', 'BCELoss', 'MSELoss', 'DiceLoss', 'BCEFocalLoss', 'FocalLoss', 'ConfidentMSELoss']
 
+class MSELoss(nn.Module):
+    def __init__(self):
+        super(MSELoss, self).__init__()
+
+    def forward(self, logits, target):
+        mse = torch.nn.MSELoss(reduction='mean')
+        loss = mse(logits, target) / 26 * 1000
+        return loss
 
 class L2Loss(nn.Module):
     def __init__(self, div_element = False):
