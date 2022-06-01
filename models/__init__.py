@@ -9,3 +9,4 @@ from .GLNet import GLNet
 from .unet_dw import UNetDW
 from .unet_ori import UNet
 from .globalNet import globalNet
+from .resnet import resnet18,resnet34,resnet50,resnet101,resnet152

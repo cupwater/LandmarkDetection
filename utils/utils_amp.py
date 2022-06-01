@@ -79,3 +79,4 @@ class MaxClipGradScaler(GradScaler):
             else:
                 raise ValueError("outputs must be a Tensor or an iterable of Tensors")
         return apply_scale(outputs)
+

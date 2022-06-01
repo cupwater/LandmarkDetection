@@ -13,16 +13,19 @@ import torch
 import torch.optim as optim
 import torch.distributed as dist
 
+import pdb
 
 from augmentation.medical_augment import LmsDetectTrainTransform, LmsDetectTestTransform
 import models
 import dataset
 from utils import Logger, AverageMeter, mkdir_p, progress_bar
 import losses
+import cv2
 
 state = {}
 best_loss = 0
 use_cuda = False
+exectime = time.time()
 
 def main(config_file):
     global state, best_loss, use_cuda
@@ -56,7 +59,7 @@ def main(config_file):
             common_config['arch']
         logger = Logger(os.path.join(
             common_config['save_path'], 'log.txt'), title=title)
-        logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss'])
+        logger.set_names(['Learning Rate', 'Avg-Train Loss', 'Avg-Valid Loss', 'Epoch-Train Loss', 'Epoch-Test Loss'])
 
 
     # initial dataset and dataloader
@@ -84,6 +87,10 @@ def main(config_file):
 
     # Model
     print("==> creating model '{}'".format(common_config['arch']))
+    # resnet34
+    # model = models.__dict__[common_config['arch']](
+    #     num_classes=data_config['num_classes'],pretrained=True)
+    # GLNet
     model = models.__dict__[common_config['arch']](
         num_classes=data_config['num_classes'])
     process_group = torch.distributed.new_group(list(range(world_size)))
@@ -91,7 +98,7 @@ def main(config_file):
     for ps in model.parameters():
         dist.broadcast(ps, 0)
     model = torch.nn.parallel.DistributedDataParallel(
-        module=model, broadcast_buffers=True, device_ids=[local_rank])
+        module=model, broadcast_buffers=True, device_ids=[local_rank],find_unused_parameters=True)
 
     # optimizer and scheduler
     state['lr'] = common_config['lr']
@@ -112,16 +119,15 @@ def main(config_file):
         if rank == 0:
             print('\nEpoch: [%d | %d] LR: %f' %
                 (epoch + 1, common_config['epoch'], state['lr']))
-        train_loss = train(
-            trainloader, model, criterion, optimizer, use_cuda, scaler)
-        test_loss = test(testloader, model, criterion, use_cuda)
-        # append logger file
-        logger.append([state['lr'], train_loss, test_loss])
+        train_loss, ep_train_loss = train(trainloader, model, criterion, optimizer, use_cuda, scaler)
+        test_loss, ep_test_loss = test(testloader, model, criterion, use_cuda, epoch+1)
         # save model
         is_best = test_loss < best_loss
-        best_loss = max(test_loss, best_loss)
+        best_loss = min(test_loss, best_loss)
         
         if rank == 0:
+            # append logger file
+            logger.append([state['lr'], train_loss, test_loss, ep_train_loss, ep_test_loss])
             save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
@@ -131,7 +137,7 @@ def main(config_file):
 
     if rank == 0:
         logger.close()
-        print('Best acc:' + str(best_loss))
+        print('Best loss:' + str(best_loss))
 
 
 def train(trainloader, model, criterion, optimizer, use_cuda, scaler):
@@ -167,7 +173,6 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler):
         scaler.step(optimizer)
         # Updates the scale for next iteration.
         scaler.update()
-
         losses.update(loss.item(), inputs.size(0))
         if int(os.environ['RANK']) == 0:
             progress_bar(batch_idx, len(trainloader), 'Loss: %.2f' % (losses.avg))
@@ -176,10 +181,10 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler):
         batch_time.update(time.time() - end)
         end = time.time()
 
-    return losses.avg
+    return losses.avg, loss.item()
 
 
-def test(testloader, model, criterion, use_cuda):
+def test(testloader, model, criterion, use_cuda, epoch):
     global best_acc
     # switch to evaluate mode
     model.eval()
@@ -189,6 +194,7 @@ def test(testloader, model, criterion, use_cuda):
     losses = AverageMeter()
 
     end = time.time()
+    index = 0
     for batch_idx, (inputs, targets) in enumerate(testloader):
         # measure data loading time
         data_time.update(time.time() - end)
@@ -203,13 +209,33 @@ def test(testloader, model, criterion, use_cuda):
             loss = criterion(outputs, targets)
 
         losses.update(loss.item(), inputs.size(0))
+        if int(os.environ['RANK']) == 0:
+            progress_bar(batch_idx, len(testloader), 'Loss: %.2f' % (losses.avg))
 
-        progress_bar(batch_idx, len(testloader), 'Loss: %.2f' % (losses.avg))
+            from dataset.util import getPointsFromHeatmap
+            for input, output in zip(inputs, outputs):
+                points = getPointsFromHeatmap(output)
+                # tensor to numpy.ndarray
+                input = input.detach().cpu().numpy()[0]
+                input = cv2.merge([input,input,input])
+                for point in points:
+                    p1 = point[0].item()
+                    p2 = point[1].item()
+                    cv2.circle(input, (p2, p1), 2, (0, 0, 255), 2)
+                timestamp = str(hash(exectime))[-6:]
+
+                if not os.path.exists('./runs/vis-process{}/ep{}'.format(timestamp, epoch)):
+                    os.makedirs('./runs/vis-process{}/ep{}'.format(timestamp, epoch))
+                cv2.imwrite('./runs/vis-process{}/ep{}/{}.png'.format(timestamp, epoch, index), input)
+
+                index += 1
+
+
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
 
-    return losses.avg
+    return losses.avg, loss.item()
 
 
 def save_checkpoint(state, is_best, save_path, filename='checkpoint.pth.tar'):
@@ -235,6 +261,7 @@ if __name__ == '__main__':
     # model related, including  Architecture, path, datasets
     parser.add_argument('--config-file', type=str,
                         default='experiments/template/landmark_detection_template.yaml')
-    parser.add_argument('--local_rank', type=int, default=0, help='local_rank')
+    parser.add_argument('--local_rank', type=int, help='local_rank')
     args = parser.parse_args()
     main(args.config_file)
+
