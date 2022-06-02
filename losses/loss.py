@@ -10,7 +10,7 @@ from torch.nn import Module
 from torch import nn
 from torch.nn import functional as F
 
-__all__ = ['L2Loss', 'BCELoss', 'MSELoss', 'DiceLoss', 'BCEFocalLoss', 'FocalLoss', 'ConfidentMSELoss']
+__all__ = ['L2Loss', 'BCELoss', 'MSELoss', 'DiceLoss', 'BCEFocalLoss', 'TorchBCELoss', 'FocalLoss', 'ConfidentMSELoss']
 
 class MSELoss(nn.Module):
     def __init__(self):
@@ -33,16 +33,26 @@ class L2Loss(nn.Module):
             loss = loss / output.size(0) / 2
         return loss
 
+class TorchBCELoss(nn.Module):
+    def __init__(self, reduction='sum'):
+        super(TorchBCELoss, self).__init__()
+        self.loss_fun = torch.nn.BCELoss(reduction=reduction)
+
+    def forward(self, logits, target):
+        loss = self.loss_fun(logits, target)
+        return loss
+
 class BCELoss(nn.Module):
     def __init__(self):
         super(BCELoss, self).__init__()
         self.pos_weight = 1
-        self.reduction = 'mean'
+        self.eps = 1e-6
+        self.reduction = 'sum'
 
     def forward(self, logits, target):
         # logits: [N, *], target: [N, *]
-        loss = - self.pos_weight * target * torch.log(logits) - \
-               (1 - target) * torch.log(1 - logits)
+        loss = - self.pos_weight * target * torch.log(logits+self.eps) - \
+               (1 - target) * torch.log(1 - logits - self.eps)
         if self.reduction == 'mean':
             loss = loss.mean()
         elif self.reduction == 'sum':

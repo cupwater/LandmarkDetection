@@ -103,16 +103,24 @@ def main(config_file):
     # optimizer and scheduler
     state['lr'] = common_config['lr']
     criterion = losses.__dict__[config['loss_config']['type']]()
-    optimizer = optim.SGD(
-        filter(
-            lambda p: p.requires_grad,
-            model.parameters()),
+    
+    optimizer = optim.Adam(
+       filter(
+           lambda p: p.requires_grad,
+           model.parameters()),
         lr=common_config['lr'],
-        momentum=0.9,
         weight_decay=common_config['weight_decay'])
 
+    #optimizer = optim.SGD(
+    #    filter(
+    #        lambda p: p.requires_grad,
+    #        model.parameters()),
+    #    lr=common_config['lr'],
+    #    momentum=0.9,
+    #    weight_decay=common_config['weight_decay'])
+
     # Creates a GradScaler once at the beginning of training.
-    scaler = torch.cuda.amp.GradScaler(enabled=True)
+    scaler = torch.cuda.amp.GradScaler(enabled=True) if config['common']['fp16'] == True else None
     # Train and val
     for epoch in range(common_config['epoch']):
         adjust_learning_rate(optimizer, epoch, common_config)
@@ -120,7 +128,7 @@ def main(config_file):
             print('\nEpoch: [%d | %d] LR: %f' %
                 (epoch + 1, common_config['epoch'], state['lr']))
         train_loss, ep_train_loss = train(trainloader, model, criterion, optimizer, use_cuda, scaler)
-        test_loss, ep_test_loss = test(testloader, model, criterion, use_cuda, epoch+1)
+        test_loss, ep_test_loss = test(testloader, model, criterion, use_cuda, epoch+1, scaler)
         # save model
         is_best = test_loss < best_loss
         best_loss = min(test_loss, best_loss)
@@ -140,7 +148,7 @@ def main(config_file):
         print('Best loss:' + str(best_loss))
 
 
-def train(trainloader, model, criterion, optimizer, use_cuda, scaler):
+def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None):
     # switch to train mode
     model.train()
 
@@ -159,20 +167,24 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler):
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
-        with torch.cuda.amp.autocast():
-            outputs = model(inputs)
-            loss = criterion(outputs, targets)
-        
-        # Scales loss.  Calls backward() on scaled loss to create scaled gradients.
-        # Backward passes under autocast are not recommended.
-        # Backward ops run in the same dtype autocast chose for corresponding forward ops.
-        scaler.scale(loss).backward()
-        # scaler.step() first unscales the gradients of the optimizer's assigned params.
-        # If these gradients do not contain infs or NaNs, optimizer.step() is then called,
-        # otherwise, optimizer.step() is skipped.
-        scaler.step(optimizer)
-        # Updates the scale for next iteration.
-        scaler.update()
+        #with torch.cuda.amp.autocast():
+        outputs = model(inputs)
+        loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
+        if scaler is None:
+            loss.backward()
+            optimizer.step()
+        else:
+            # Scales loss.  Calls backward() on scaled loss to create scaled gradients.
+            # Backward passes under autocast are not recommended.
+            # Backward ops run in the same dtype autocast chose for corresponding forward ops.
+            scaler.scale(loss).backward()
+            # scaler.step() first unscales the gradients of the optimizer's assigned params.
+            # If these gradients do not contain infs or NaNs, optimizer.step() is then called,
+            # otherwise, optimizer.step() is skipped.
+            scaler.step(optimizer)
+            # Updates the scale for next iteration.
+            scaler.update()
+
         losses.update(loss.item(), inputs.size(0))
         if int(os.environ['RANK']) == 0:
             progress_bar(batch_idx, len(trainloader), 'Loss: %.2f' % (losses.avg))
@@ -184,7 +196,7 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler):
     return losses.avg, loss.item()
 
 
-def test(testloader, model, criterion, use_cuda, epoch):
+def test(testloader, model, criterion, use_cuda, epoch, scaler=None):
     global best_acc
     # switch to evaluate mode
     model.eval()
@@ -201,34 +213,38 @@ def test(testloader, model, criterion, use_cuda, epoch):
 
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
-        inputs, targets = torch.autograd.Variable(
-            inputs, volatile=True), torch.autograd.Variable(targets)
+        inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
         # compute output
-        with torch.cuda.amp.autocast():
-            outputs = model(inputs)
-            loss = criterion(outputs, targets)
+        if scaler is not None:
+            with torch.cuda.amp.autocast():
+                outputs = model(inputs)
+                loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
+        else:
+            with torch.no_grad():
+                outputs = model(inputs)
+                loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
 
         losses.update(loss.item(), inputs.size(0))
         if int(os.environ['RANK']) == 0:
             progress_bar(batch_idx, len(testloader), 'Loss: %.2f' % (losses.avg))
 
-            from dataset.util import getPointsFromHeatmap
-            for input, output in zip(inputs, outputs):
-                points = getPointsFromHeatmap(output)
-                # tensor to numpy.ndarray
-                input = input.detach().cpu().numpy()[0]
-                input = cv2.merge([input,input,input])
-                for point in points:
-                    p1 = point[0].item()
-                    p2 = point[1].item()
-                    cv2.circle(input, (p2, p1), 2, (0, 0, 255), 2)
-                timestamp = str(hash(exectime))[-6:]
+            #from dataset.util import getPointsFromHeatmap
+            #for input, output in zip(inputs, outputs):
+            #    points = getPointsFromHeatmap(output)
+            #    # tensor to numpy.ndarray
+            #    input = input.detach().cpu().numpy()[0]
+            #    input = cv2.merge([input,input,input])
+            #    for point in points:
+            #        p1 = point[0].item()
+            #        p2 = point[1].item()
+            #        cv2.circle(input, (p2, p1), 2, (0, 0, 255), 2)
+            #    timestamp = str(hash(exectime))[-6:]
 
-                if not os.path.exists('./runs/vis-process{}/ep{}'.format(timestamp, epoch)):
-                    os.makedirs('./runs/vis-process{}/ep{}'.format(timestamp, epoch))
-                cv2.imwrite('./runs/vis-process{}/ep{}/{}.png'.format(timestamp, epoch, index), input)
+            #    if not os.path.exists('./runs/vis-process{}/ep{}'.format(timestamp, epoch)):
+            #        os.makedirs('./runs/vis-process{}/ep{}'.format(timestamp, epoch))
+            #    cv2.imwrite('./runs/vis-process{}/ep{}/{}.png'.format(timestamp, epoch, index), input)
 
-                index += 1
+            #    index += 1
 
 
         # measure elapsed time

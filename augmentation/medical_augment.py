@@ -66,8 +66,8 @@ def flip(axis=1):
 
 def LmsDetectTrainTransform(rotate_angle=15, offset=[15, 15]):
     transform_list = []
-    if np.random.rand() < 0.5:
-        transform_list.append(flip(1))
+    #if np.random.rand() < 0.5:
+    #    transform_list.append(flip(1))
     if np.random.rand() < 0.5:
         transform_list.append(rotate(np.random.rand()*rotate_angle))
     if np.random.rand() < 0.5:
