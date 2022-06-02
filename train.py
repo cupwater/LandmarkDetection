@@ -7,6 +7,7 @@ from __future__ import print_function
 import os
 import shutil
 import time
+import pdb
 import yaml
 
 import torch
@@ -59,7 +60,7 @@ def main(config_file):
     trainloader = data.DataLoader(
         trainset, batch_size=common_config['train_batch'], shuffle=True, num_workers=5)
     testloader = data.DataLoader(
-        testset, batch_size=common_config['train_batch'], shuffle=False, num_workers=5)
+        testset, batch_size=common_config['test_batch'], shuffle=False, num_workers=2)
 
     # Model
     print("==> creating model '{}'".format(common_config['arch']))
@@ -72,13 +73,19 @@ def main(config_file):
 
     # optimizer and scheduler
     criterion = losses.__dict__[config['loss_config']['type']]()
-    optimizer = optim.SGD(
-        filter(
-            lambda p: p.requires_grad,
-            model.parameters()),
+    optimizer = optim.Adam(
+       filter(
+           lambda p: p.requires_grad,
+           model.parameters()),
         lr=common_config['lr'],
-        momentum=0.9,
         weight_decay=common_config['weight_decay'])
+    #optimizer = optim.SGD(
+    #    filter(
+    #        lambda p: p.requires_grad,
+    #        model.parameters()),
+    #    lr=common_config['lr'],
+    #    momentum=0.9,
+    #    weight_decay=common_config['weight_decay'])
 
     # logger
     title = 'Chest landamrks detection using' + \
@@ -131,7 +138,7 @@ def train(trainloader, model, criterion, optimizer, use_cuda):
         
         outputs = model(inputs)
 
-        loss = criterion(outputs, targets)
+        loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
         losses.update(loss.item(), inputs.size(0))
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -167,7 +174,7 @@ def test(testloader, model, criterion, use_cuda):
             inputs, volatile=True), torch.autograd.Variable(targets)
         # compute output
         outputs = model(inputs)
-        loss = criterion(outputs, targets)
+        loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
         losses.update(loss.item(), inputs.size(0))
 
         progress_bar(batch_idx, len(testloader), 'Loss: %.2f' % (losses.avg))

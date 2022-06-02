@@ -8,6 +8,7 @@ Description:
 import torch
 import torch.nn as nn
 from .unet_dw  import UNetDW
+from .unet_ori  import UNet
 from .globalNet import globalNet
 
 
@@ -15,7 +16,8 @@ class GLNet(nn.Module):
     ''' global and local net '''
     def __init__(self, num_classes):
         super(GLNet, self).__init__()
-        self.localNet = UNetDW(num_classes=num_classes)
+        self.localNet = UNet(num_classes=num_classes)
+        #self.localNet = UNetDW(num_classes=num_classes)
         self.globalNet = globalNet(3, num_classes)
 
     def forward(self, x):

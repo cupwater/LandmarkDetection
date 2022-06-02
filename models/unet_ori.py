@@ -79,7 +79,7 @@ class OutConv(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, num_class=2, bilinear=True):
+    def __init__(self, num_classes=2, bilinear=True):
         super(UNet, self).__init__()
         self.bilinear = bilinear
         self.in1  = OutConv(3, 64)
@@ -93,7 +93,7 @@ class UNet(nn.Module):
         self.up2 = Up(512, 256 // factor, bilinear)
         self.up3 = Up(256, 128 // factor, bilinear)
         self.up4 = Up(128, 64, bilinear)
-        self.out1 = OutConv(64, num_class)
+        self.out1 = OutConv(64, num_classes)
 
     def forward(self, x):
         x1 = self.in1(x)
@@ -107,4 +107,4 @@ class UNet(nn.Module):
         x = self.up3(x, x2)
         x = self.up4(x, x1)
         logits = self.out1(x)
-        return {'output': torch.sigmoid(logits)}
+        return torch.sigmoid(logits)

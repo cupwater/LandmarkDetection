@@ -60,5 +60,5 @@ class globalNet(nn.Module):
         x = self.out_conv(x)
 
         x = F.interpolate(x, size=size)
-        # return torch.sigmoid(x)
+        return torch.sigmoid(x)
         return x
