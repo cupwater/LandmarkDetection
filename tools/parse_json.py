@@ -1,7 +1,7 @@
 '''
 Author: Peng Bo
 Date: 2022-05-21 11:14:06
-LastEditTime: 2022-05-21 19:29:38
+LastEditTime: 2022-06-02 14:29:30
 Description: 
 
 '''
@@ -120,17 +120,42 @@ def main():
     lms_array_withmask = np.array(lms_array_withmask).reshape(-1, len(labels_set)*2)
     lms_array_withmask_train = lms_array_withmask[withmask_train_idxs, :]
     lms_array_withmask_test = lms_array_withmask[withmask_test_idxs, :]
+
     np.savetxt(landmarks_path, lms_array_withmask, fmt='%.3f')
+    with open(landmarks_path, 'r+') as f:  
+        f.seek(0, 0)
+        f.write(str(lms_array_withmask.shape[0]) + '\n')
+        
     np.savetxt(landmarks_path.split('.')[0] + '_train.txt', lms_array_withmask_train, fmt='%.3f')
+    with open(landmarks_path.split('.')[0] + '_train.txt', 'r+') as f:  
+        f.seek(0, 0)
+        f.write(str(lms_array_withmask_train.shape[0]) + '\n')
+
     np.savetxt(landmarks_path.split('.')[0] + '_test.txt', lms_array_withmask_test, fmt='%.3f')
+    with open(landmarks_path.split('.')[0] + '_test.txt', 'r+') as f:  
+        f.seek(0, 0)
+        f.write(str(lms_array_withmask_test.shape[0]) + '\n')
+    
 
     landmarks_path = os.path.join(os.path.dirname(img_list), 'lms_filter.txt')
     lms_array_filter = np.array(lms_array_filter).reshape(-1, len(labels_set)*2)
     lms_array_filter_train = lms_array_filter[filter_train_idxs, :]
     lms_array_filter_test = lms_array_filter[filter_test_idxs, :]
+
     np.savetxt(landmarks_path, lms_array_filter, fmt='%.3f')
+    with open(landmarks_path, 'r+') as f:  
+        f.seek(0, 0)
+        f.write(str(lms_array_filter.shape[0]) + '\n')
+
     np.savetxt(landmarks_path.split('.')[0] + '_train.txt', lms_array_filter_train, fmt='%.3f')
+    with open(landmarks_path.split('.')[0] + '_train.txt', 'r+') as f:  
+        f.seek(0, 0)
+        f.write(str(lms_array_filter_train.shape[0]) + '\n')
+
     np.savetxt(landmarks_path.split('.')[0] + '_test.txt', lms_array_filter_test, fmt='%.3f')
+    with open(landmarks_path.split('.')[0] + '_test.txt', 'r+') as f:  
+        f.seek(0, 0)
+        f.write(str(lms_array_filter_test.shape[0]) + '\n')
     
 if __name__ == '__main__':
     main()
