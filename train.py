@@ -79,6 +79,7 @@ def main(config_file):
            model.parameters()),
         lr=common_config['lr'],
         weight_decay=common_config['weight_decay'])
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, **common_config[common_config['scheduler_lr']])
     #optimizer = optim.SGD(
     #    filter(
     #        lambda p: p.requires_grad,
@@ -96,11 +97,11 @@ def main(config_file):
 
     # Train and val
     for epoch in range(common_config['epoch']):
-        adjust_learning_rate(optimizer, epoch, common_config)
+        #adjust_learning_rate(optimizer, epoch, common_config)
         print('\nEpoch: [%d | %d] LR: %f' %
               (epoch + 1, common_config['epoch'], state['lr']))
         train_loss = train(
-            trainloader, model, criterion, optimizer, use_cuda)
+            trainloader, model, criterion, optimizer, use_cuda, scheduler)
         test_loss = test(testloader, model, criterion, use_cuda)
         # append logger file
         logger.append([state['lr'], train_loss, test_loss])
@@ -119,7 +120,7 @@ def main(config_file):
     print(best_acc)
 
 
-def train(trainloader, model, criterion, optimizer, use_cuda):
+def train(trainloader, model, criterion, optimizer, use_cuda, scheduler=None):
     # switch to train mode
     model.train()
 
@@ -144,6 +145,7 @@ def train(trainloader, model, criterion, optimizer, use_cuda):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        scheduler.step()
 
         progress_bar(batch_idx, len(trainloader), 'Loss: %.2f' % (losses.avg))
 
