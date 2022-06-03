@@ -5,6 +5,7 @@ import torchvision
 import torchvision.transforms as transforms
 import numpy as np
 from .misc import *   
+import pdb
 import cv2
 
 img_size = 512
@@ -135,9 +136,10 @@ def get_landmarks_from_heatmap(pred_heatmap):
 
 
 def visualize_heatmap(input, landmarks):
-    img = np.transpose(input.cpu().numpy())
+    img = np.transpose(input.cpu().numpy())[:,:,0]
     img = 255*(img-np.min(img)) / (np.max(img) - np.min(img))
     img = img.astype(np.uint8)
+    img = cv2.merge([img, img, img])
     # draw landmarks on image
     for (x_pos,y_pos) in landmarks:
         cv2.circle(img, (x_pos,y_pos), 2, (0,0,255), -1)

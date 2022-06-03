@@ -91,8 +91,9 @@ def main(config_file):
     #    momentum=0.9,
     #    weight_decay=common_config['weight_decay'])
 
-    if args.testing:
-        model.load_state_dict(os.path.join(common_config['save_path'], 'checkpoint.pth.tar'), False)
+    if args.visualize:
+        checkpoints = torch.load(os.path.join(common_config['save_path'], 'checkpoint.pth.tar'))
+        model.load_state_dict(checkpoints['state_dict'], False)
         validate(testloader, model, criterion, use_cuda, common_config, args.visualize)
         return
 
@@ -190,7 +191,7 @@ def validate(testloader, model, criterion, use_cuda, common_config, visualize=Fa
             if not os.path.exists(save_folder):
                 os.makedirs(save_folder)
             for i in range(inputs.size(0)):
-                landmarks = get_landmarks_from_heatmap(outputs[i])
+                landmarks = get_landmarks_from_heatmap(outputs[i].detach())
                 visualize_img = visualize_heatmap(inputs[i], landmarks)
                 save_path = os.path.join(save_folder, str(batch_idx*inputs.size(0) + i)+'.jpg')
                 cv2.imwrite(save_path, visualize_img)
