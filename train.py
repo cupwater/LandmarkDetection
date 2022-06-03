@@ -9,6 +9,7 @@ import shutil
 import time
 import pdb
 import yaml
+import cv2
 
 import torch
 import torch.nn as nn
@@ -20,8 +21,9 @@ from augmentation.medical_augment import LmsDetectTrainTransform, LmsDetectTestT
 
 import models
 import dataset
-from utils import Logger, AverageMeter, mkdir_p, progress_bar
+from utils import Logger, AverageMeter, mkdir_p, progress_bar, visualize_heatmap, get_landmarks_from_heatmap
 import losses
+
 
 state = {}
 best_loss = 0
@@ -66,10 +68,11 @@ def main(config_file):
     print("==> creating model '{}'".format(common_config['arch']))
     model = models.__dict__[common_config['arch']](
         num_classes=data_config['num_classes'])
-    
+
     if use_cuda:
         model = model.cuda()
     cudnn.benchmark = True
+
 
     # optimizer and scheduler
     criterion = losses.__dict__[config['loss_config']['type']]()
@@ -87,6 +90,11 @@ def main(config_file):
     #    momentum=0.9,
     #    weight_decay=common_config['weight_decay'])
 
+    if args.testing:
+        model.load_state_dict(os.path.join(common_config['save_path'], 'checkpoint.pth.tar'), False)
+        validate(testloader, model, criterion, use_cuda, common_config, args.visualize)
+        return
+
     # logger
     title = 'Chest landamrks detection using' + \
         common_config['arch']
@@ -101,7 +109,7 @@ def main(config_file):
               (epoch + 1, common_config['epoch'], state['lr']))
         train_loss = train(
             trainloader, model, criterion, optimizer, use_cuda)
-        test_loss = test(testloader, model, criterion, use_cuda)
+        test_loss = validate(testloader, model, criterion, use_cuda, common_config)
         # append logger file
         logger.append([state['lr'], train_loss, test_loss])
         # save model
@@ -135,7 +143,6 @@ def train(trainloader, model, criterion, optimizer, use_cuda):
             inputs, targets = inputs.cuda(), targets.cuda()
         inputs = torch.autograd.Variable(inputs)
         targets = torch.autograd.Variable(targets)
-        
         outputs = model(inputs)
 
         loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
@@ -144,9 +151,7 @@ def train(trainloader, model, criterion, optimizer, use_cuda):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
         progress_bar(batch_idx, len(trainloader), 'Loss: %.2f' % (losses.avg))
-
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
@@ -154,7 +159,7 @@ def train(trainloader, model, criterion, optimizer, use_cuda):
     return losses.avg
 
 
-def test(testloader, model, criterion, use_cuda):
+def validate(testloader, model, criterion, use_cuda, common_config, visualize=False):
     global best_acc
     # switch to evaluate mode
     model.eval()
@@ -176,6 +181,16 @@ def test(testloader, model, criterion, use_cuda):
         outputs = model(inputs)
         loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
         losses.update(loss.item(), inputs.size(0))
+
+        if visualize:
+            save_folder = os.path.join(common_config['save_path'], 'results/')
+            if not os.path.exists(save_folder):
+                os.makedirs(save_folder)
+            for i in range(inputs.size(0)):
+                landmarks = get_landmarks_from_heatmap(outputs[i])
+                visualize_img = visualize_heatmap(inputs[i], landmarks)
+                save_path = os.path.join(save_folder, str(batch_idx*inputs.size(0) + i)+'.jpg')
+                cv2.imwrite(save_path, visualize_img)
 
         progress_bar(batch_idx, len(testloader), 'Loss: %.2f' % (losses.avg))
         # measure elapsed time
@@ -208,6 +223,7 @@ if __name__ == '__main__':
     # model related, including  Architecture, path, datasets
     parser.add_argument('--config-file', type=str,
                         default='experiments/template/landmark_detection_template.yaml')
+    parser.add_argument('--visualize', action='store_true')
     parser.add_argument('--gpu-id', type=str, default='0')
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id

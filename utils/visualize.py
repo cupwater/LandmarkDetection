@@ -1,12 +1,15 @@
+# encoding: utf8
 import matplotlib.pyplot as plt
 import torch
-import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
 import numpy as np
 from .misc import *   
+import cv2
 
-__all__ = ['make_image', 'show_batch', 'show_mask', 'show_mask_single']
+img_size = 512
+
+__all__ = ['make_image', 'show_batch', 'show_mask', 'show_mask_single', 'visualize_heatmap', 'get_landmarks_from_heatmap']
 
 # functions to show an image
 def make_image(img, mean=(0,0,0), std=(1,1,1)):
@@ -102,9 +105,40 @@ def show_mask(images, masklist, Mean=(2, 2, 2), Std=(0.5,0.5,0.5)):
         plt.axis('off')
 
 
+img_size = 512
+## get the position of landmarks
+x_pos_idxs = np.array(range(img_size)).reshape(1, -1)
+x_pos_idxs = np.repeat(x_pos_idxs, img_size, axis=0)
+y_pos_idxs = np.array(range(img_size)).reshape(-1, 1)
+y_pos_idxs = np.repeat(y_pos_idxs, img_size, axis=1)
 
-# x = torch.zeros(1, 3, 3)
-# out = colorize(x)
-# out_im = make_image(out)
-# plt.imshow(out_im)
-# plt.show()
+
+def get_landmarks_from_heatmap(pred_heatmap):
+    pred_heatmap = np.transpose(pred_heatmap.cpu().numpy())
+    if pred_heatmap.shape[0] == 512 and pred_heatmap.shape[1] == 512:
+        x_idxs = x_pos_idxs
+        y_idxs = y_pos_idxs
+    else:
+        w,h,_ = pred_heatmap.shape
+        ## get the position of landmarks
+        x_idxs = np.array(range(w)).reshape(1, -1)
+        x_idxs = np.repeat(x_idxs, h, axis=0)
+        y_idxs = np.array(range(h)).reshape(-1, 1)
+        y_idxs = np.repeat(y_idxs, w, axis=1)
+    
+    landmarks = []
+    for i in range(pred_heatmap.shape[-1]):
+        x_pos = int(np.sum(pred_heatmap[:,:,i] * x_idxs) / np.sum(pred_heatmap[:,:,i]))
+        y_pos = int(np.sum(pred_heatmap[:,:,i] * y_idxs) / np.sum(pred_heatmap[:,:,i]))
+        landmarks.append([x_pos, y_pos])
+    return landmarks
+
+
+def visualize_heatmap(input, landmarks):
+    img = np.transpose(input.cpu().numpy())
+    img = 255*(img-np.min(img)) / (np.max(img) - np.min(img))
+    img = img.astype(np.uint8)
+    # draw landmarks on image
+    for (x_pos,y_pos) in landmarks:
+        cv2.circle(img, (x_pos,y_pos), 2, (0,0,255), -1)
+    return img
