@@ -10,8 +10,10 @@ import time
 import yaml
 
 import torch
-import torch.utils.data as data
 import torch.optim as optim
+import torch.distributed as dist
+
+import pdb
 
 from augmentation.medical_augment import LmsDetectTrainTransform, LmsDetectTestTransform
 import models
@@ -28,19 +30,36 @@ exectime = time.time()
 def main(config_file):
     global state, best_loss, use_cuda
 
+    # initial distributed settings
+    try:
+        world_size = int(os.environ['WORLD_SIZE'])
+        rank = int(os.environ['RANK'])
+        dist_url = "tcp://{}:{}".format(os.environ["MASTER_ADDR"], os.environ["MASTER_PORT"])
+    except KeyError:
+        world_size = 1
+        rank = 0
+        dist_url = "tcp://127.0.0.1:12584"
+    dist.init_process_group(backend='nccl', init_method=dist_url, rank=rank, world_size=world_size)
+    rank = int(os.environ["RANK"])
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    torch.cuda.set_device(local_rank)
+
+
     # parse config of model training
     with open(config_file) as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
     common_config = config['common']
 
-    if not os.path.isdir(common_config['save_path']):
-        mkdir_p(common_config['save_path'])
-    # logger
-    title = 'Chest landamrks detection using' + \
-        common_config['arch']
-    logger = Logger(os.path.join(
-        common_config['save_path'], 'log.txt'), title=title)
-    logger.set_names(['Learning Rate', 'Avg-Train Loss', 'Avg-Valid Loss', 'Epoch-Train Loss', 'Epoch-Test Loss'])
+    if rank == 0:
+        if not os.path.isdir(common_config['save_path']):
+            mkdir_p(common_config['save_path'])
+        # logger
+        title = 'Chest landamrks detection using' + \
+            common_config['arch']
+        logger = Logger(os.path.join(
+            common_config['save_path'], 'log.txt'), title=title)
+        logger.set_names(['Learning Rate', 'Avg-Train Loss', 'Avg-Valid Loss', 'Epoch-Train Loss', 'Epoch-Test Loss'])
 
 
     # initial dataset and dataloader
@@ -57,23 +76,29 @@ def main(config_file):
     testset = dataset.__dict__[data_config['type']](
         data_config['test_list'], data_config['test_meta'], transform_test,
         prefix=data_config['prefix'])
-    
-    # create dataloader for training and testing
-    trainloader = data.DataLoader(
-        trainset, batch_size=common_config['train_batch'], shuffle=True, num_workers=5)
-    testloader = data.DataLoader(
-        testset, batch_size=common_config['test_batch'], shuffle=False, num_workers=2)
-    
+    train_sampler = torch.utils.data.distributed.DistributedSampler(
+        trainset, shuffle=True)
+    test_sampler = torch.utils.data.distributed.DistributedSampler(
+        testset, shuffle=False)
+    trainloader = dataset.DataLoaderX(local_rank=local_rank, dataset=trainset, batch_size=common_config['train_batch'],
+        sampler=train_sampler, num_workers=4, pin_memory=True, drop_last=True)
+    testloader = dataset.DataLoaderX(local_rank=local_rank, dataset=testset, batch_size=common_config['test_batch'],
+        sampler=test_sampler, num_workers=4, pin_memory=True, drop_last=False)
 
     # Model
     print("==> creating model '{}'".format(common_config['arch']))
-    # Model
-    print("==> creating model '{}'".format(common_config['arch']))
+    # resnet34
+    # model = models.__dict__[common_config['arch']](
+    #     num_classes=data_config['num_classes'],pretrained=True)
+    # GLNet
     model = models.__dict__[common_config['arch']](
         num_classes=data_config['num_classes'])
-    if use_cuda:
-        model = model.cuda()
-    model = torch.nn.DataParallel(model)
+    process_group = torch.distributed.new_group(list(range(world_size)))
+    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model, process_group).to(local_rank)
+    for ps in model.parameters():
+        dist.broadcast(ps, 0)
+    model = torch.nn.parallel.DistributedDataParallel(
+        module=model, broadcast_buffers=True, device_ids=[local_rank],find_unused_parameters=True)
 
     # optimizer and scheduler
     state['lr'] = common_config['lr']
@@ -86,12 +111,21 @@ def main(config_file):
         lr=common_config['lr'],
         weight_decay=common_config['weight_decay'])
 
+    #optimizer = optim.SGD(
+    #    filter(
+    #        lambda p: p.requires_grad,
+    #        model.parameters()),
+    #    lr=common_config['lr'],
+    #    momentum=0.9,
+    #    weight_decay=common_config['weight_decay'])
+
     # Creates a GradScaler once at the beginning of training.
     scaler = torch.cuda.amp.GradScaler(enabled=True) if config['common']['fp16'] == True else None
     # Train and val
     for epoch in range(common_config['epoch']):
         adjust_learning_rate(optimizer, epoch, common_config)
-        print('\nEpoch: [%d | %d] LR: %f' %
+        if rank == 0:
+            print('\nEpoch: [%d | %d] LR: %f' %
                 (epoch + 1, common_config['epoch'], state['lr']))
         train_loss, ep_train_loss = train(trainloader, model, criterion, optimizer, use_cuda, scaler)
         test_loss, ep_test_loss = test(testloader, model, criterion, use_cuda, epoch+1, scaler)
@@ -99,17 +133,19 @@ def main(config_file):
         is_best = test_loss < best_loss
         best_loss = min(test_loss, best_loss)
         
-        # append logger file
-        logger.append([state['lr'], train_loss, test_loss, ep_train_loss, ep_test_loss])
-        save_checkpoint({
-            'epoch': epoch + 1,
-            'state_dict': model.state_dict(),
-            'best_loss': best_loss,
-            'optimizer': optimizer.state_dict(),
-        }, is_best, save_path=common_config['save_path'])
-        
-    logger.close()
-    print('Best loss:' + str(best_loss))
+        if rank == 0:
+            # append logger file
+            logger.append([state['lr'], train_loss, test_loss, ep_train_loss, ep_test_loss])
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'state_dict': model.state_dict(),
+                'best_loss': best_loss,
+                'optimizer': optimizer.state_dict(),
+            }, is_best, save_path=common_config['save_path'])
+
+    if rank == 0:
+        logger.close()
+        print('Best loss:' + str(best_loss))
 
 
 def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None):
@@ -191,6 +227,25 @@ def test(testloader, model, criterion, use_cuda, epoch, scaler=None):
         losses.update(loss.item(), inputs.size(0))
         if int(os.environ['RANK']) == 0:
             progress_bar(batch_idx, len(testloader), 'Loss: %.2f' % (losses.avg))
+
+            #from dataset.util import getPointsFromHeatmap
+            #for input, output in zip(inputs, outputs):
+            #    points = getPointsFromHeatmap(output)
+            #    # tensor to numpy.ndarray
+            #    input = input.detach().cpu().numpy()[0]
+            #    input = cv2.merge([input,input,input])
+            #    for point in points:
+            #        p1 = point[0].item()
+            #        p2 = point[1].item()
+            #        cv2.circle(input, (p2, p1), 2, (0, 0, 255), 2)
+            #    timestamp = str(hash(exectime))[-6:]
+
+            #    if not os.path.exists('./runs/vis-process{}/ep{}'.format(timestamp, epoch)):
+            #        os.makedirs('./runs/vis-process{}/ep{}'.format(timestamp, epoch))
+            #    cv2.imwrite('./runs/vis-process{}/ep{}/{}.png'.format(timestamp, epoch, index), input)
+
+            #    index += 1
+
 
         # measure elapsed time
         batch_time.update(time.time() - end)
