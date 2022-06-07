@@ -68,6 +68,7 @@ def main(config_file):
     print("==> creating model '{}'".format(common_config['arch']))
     model = models.__dict__[common_config['arch']](
         num_classes=data_config['num_classes'])
+    model = torch.nn.DataParallel(model)
 
     if use_cuda:
         model = model.cuda()
