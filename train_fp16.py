@@ -16,7 +16,7 @@ import torch.optim as optim
 from augmentation.medical_augment import LmsDetectTrainTransform, LmsDetectTestTransform
 import models
 import dataset
-from utils import Logger, AverageMeter, mkdir_p, progress_bar
+from utils import Logger, AverageMeter, mkdir_p, progress_bar, visualize_heatmap, get_landmarks_from_heatmap
 import losses
 import cv2
 
@@ -87,6 +87,12 @@ def main(config_file):
         weight_decay=common_config['weight_decay'])
     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, **common_config[common_config['scheduler_lr']])
 
+    if args.visualize:
+        checkpoints = torch.load(os.path.join(common_config['save_path'], 'checkpoint.pth.tar'))
+        model.load_state_dict(checkpoints['state_dict'], False)
+        test(testloader, model, criterion, use_cuda, visualize=args.visualize)
+        return
+
     # Creates a GradScaler once at the beginning of training.
     scaler = torch.cuda.amp.GradScaler(enabled=True) if config['common']['fp16'] == True else None
     # Train and val
@@ -94,7 +100,7 @@ def main(config_file):
         print('\nEpoch: [%d | %d] LR: %f' %
                 (epoch + 1, common_config['epoch'], state['lr']))
         train_loss, ep_train_loss = train(trainloader, model, criterion, optimizer, use_cuda, scaler, scheduler)
-        test_loss, ep_test_loss = test(testloader, model, criterion, use_cuda, epoch+1, scaler)
+        test_loss, ep_test_loss = test(testloader, model, criterion, use_cuda, common_config, scaler, args.visualize)
         # save model
         is_best = test_loss < best_loss
         best_loss = min(test_loss, best_loss)
@@ -164,7 +170,7 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None, sched
     return losses.avg, loss.item()
 
 
-def test(testloader, model, criterion, use_cuda, epoch, scaler=None):
+def test(testloader, model, criterion, use_cuda, common_config, scaler=None, visualize=None):
     global best_acc
     # switch to evaluate mode
     model.eval()
@@ -191,6 +197,16 @@ def test(testloader, model, criterion, use_cuda, epoch, scaler=None):
             with torch.no_grad():
                 outputs = model(inputs)
                 loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
+
+        if visualize:
+            save_folder = os.path.join(common_config['save_path'], 'results/')
+            if not os.path.exists(save_folder):
+                os.makedirs(save_folder)
+            for i in range(inputs.size(0)):
+                landmarks = get_landmarks_from_heatmap(outputs[i].detach())
+                visualize_img = visualize_heatmap(inputs[i], landmarks)
+                save_path = os.path.join(save_folder, str(batch_idx*inputs.size(0) + i)+'.jpg')
+                cv2.imwrite(save_path, visualize_img)
 
         losses.update(loss.item(), inputs.size(0))
         progress_bar(batch_idx, len(testloader), 'Loss: %.2f' % (losses.avg))
@@ -226,6 +242,7 @@ if __name__ == '__main__':
     parser.add_argument('--config-file', type=str,
                         default='experiments/template/landmark_detection_template.yaml')
     parser.add_argument('--gpu-id', type=str, default='0')
+    parser.add_argument('--visualize', action='store_true')
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     main(args.config_file)
