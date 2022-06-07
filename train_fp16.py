@@ -22,7 +22,7 @@ import cv2
 
 state = {}
 best_loss = 0
-use_cuda = False
+use_cuda = True
 exectime = time.time()
 
 def main(config_file):
@@ -71,9 +71,9 @@ def main(config_file):
     print("==> creating model '{}'".format(common_config['arch']))
     model = models.__dict__[common_config['arch']](
         num_classes=data_config['num_classes'])
+    model = torch.nn.DataParallel(model)
     if use_cuda:
         model = model.cuda()
-    model = torch.nn.DataParallel(model)
 
     # optimizer and scheduler
     state['lr'] = common_config['lr']
@@ -85,15 +85,15 @@ def main(config_file):
            model.parameters()),
         lr=common_config['lr'],
         weight_decay=common_config['weight_decay'])
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, **common_config[common_config['scheduler_lr']])
 
     # Creates a GradScaler once at the beginning of training.
     scaler = torch.cuda.amp.GradScaler(enabled=True) if config['common']['fp16'] == True else None
     # Train and val
     for epoch in range(common_config['epoch']):
-        adjust_learning_rate(optimizer, epoch, common_config)
         print('\nEpoch: [%d | %d] LR: %f' %
                 (epoch + 1, common_config['epoch'], state['lr']))
-        train_loss, ep_train_loss = train(trainloader, model, criterion, optimizer, use_cuda, scaler)
+        train_loss, ep_train_loss = train(trainloader, model, criterion, optimizer, use_cuda, scaler, scheduler)
         test_loss, ep_test_loss = test(testloader, model, criterion, use_cuda, epoch+1, scaler)
         # save model
         is_best = test_loss < best_loss
@@ -108,11 +108,12 @@ def main(config_file):
             'optimizer': optimizer.state_dict(),
         }, is_best, save_path=common_config['save_path'])
         
+        
     logger.close()
     print('Best loss:' + str(best_loss))
 
 
-def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None):
+def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None, scheduler=None):
     # switch to train mode
     model.train()
 
@@ -131,13 +132,16 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None):
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
-        #with torch.cuda.amp.autocast():
-        outputs = model(inputs)
-        loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
+        
         if scaler is None:
+            outputs = model(inputs)
+            loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
             loss.backward()
             optimizer.step()
         else:
+            with torch.cuda.amp.autocast():
+                outputs = model(inputs)
+                loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
             # Scales loss.  Calls backward() on scaled loss to create scaled gradients.
             # Backward passes under autocast are not recommended.
             # Backward ops run in the same dtype autocast chose for corresponding forward ops.
@@ -150,8 +154,8 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None):
             scaler.update()
 
         losses.update(loss.item(), inputs.size(0))
-        if int(os.environ['RANK']) == 0:
-            progress_bar(batch_idx, len(trainloader), 'Loss: %.2f' % (losses.avg))
+        progress_bar(batch_idx, len(trainloader), 'Loss: %.2f' % (losses.avg))
+        scheduler.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -189,8 +193,7 @@ def test(testloader, model, criterion, use_cuda, epoch, scaler=None):
                 loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
 
         losses.update(loss.item(), inputs.size(0))
-        if int(os.environ['RANK']) == 0:
-            progress_bar(batch_idx, len(testloader), 'Loss: %.2f' % (losses.avg))
+        progress_bar(batch_idx, len(testloader), 'Loss: %.2f' % (losses.avg))
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -222,7 +225,9 @@ if __name__ == '__main__':
     # model related, including  Architecture, path, datasets
     parser.add_argument('--config-file', type=str,
                         default='experiments/template/landmark_detection_template.yaml')
-    parser.add_argument('--local_rank', type=int, help='local_rank')
+    parser.add_argument('--gpu-id', type=str, default='0')
     args = parser.parse_args()
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     main(args.config_file)
+
 
