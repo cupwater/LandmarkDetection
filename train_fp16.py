@@ -90,7 +90,7 @@ def main(config_file):
     if args.visualize:
         checkpoints = torch.load(os.path.join(common_config['save_path'], 'checkpoint.pth.tar'))
         model.load_state_dict(checkpoints['state_dict'], False)
-        test(testloader, model, criterion, use_cuda, visualize=args.visualize)
+        test(testloader, model, criterion, use_cuda, common_config, visualize=args.visualize)
         return
 
     # Creates a GradScaler once at the beginning of training.
