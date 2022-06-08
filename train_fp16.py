@@ -52,10 +52,10 @@ def main(config_file):
     print('==> Preparing dataset %s' % data_config['type'])
     # create dataset for training and testing
     trainset = dataset.__dict__[data_config['type']](
-        data_config['train_list'], data_config['train_meta'], transform_train,
+        data_config['train_list'], data_config['train_meta'], augment_config,
         prefix=data_config['prefix'])
     testset = dataset.__dict__[data_config['type']](
-        data_config['test_list'], data_config['test_meta'], transform_test,
+        data_config['test_list'], data_config['test_meta'], augment_config,
         prefix=data_config['prefix'])
     
     # create dataloader for training and testing
