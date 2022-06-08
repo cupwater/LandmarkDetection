@@ -1,14 +1,14 @@
 '''
 Author: Peng Bo
 Date: 2022-05-15 17:38:02
-LastEditTime: 2022-05-15 20:58:27
+LastEditTime: 2022-06-08 20:58:55
 Description: utils for landmark_dataset, including heatmap generation
 
 '''
 
 from itertools import product
 import numpy as np
-
+from skimage import transform as sktrans
 
 def norm(x, vmin=None, vmax=None):
     if vmin is None or vmax is None:
@@ -79,3 +79,52 @@ def genPoints(start, end, n=6, min_ratio=0, max_ratio=1):
     diff = end-start
     for i in np.linspace(min_ratio, max_ratio, n):
         yield tuple((start+diff*i+0.5).astype(np.int16).tolist())
+
+
+def rotate(img, angle):
+    '''
+        Rotate image by a certain angle around its center in counter-clockwise direction
+    '''
+    ret = []
+    for i in range(img.shape[0]):
+        ret.append(sktrans.rotate(img[i], angle))
+    return np.array(ret)
+
+def translate(img, offsets):
+    ''' translation
+        offsets: n-item list-like, for each dim
+    '''
+    offsets = tuple(offsets)
+    size = img.shape[1:]
+
+    if offsets[0]<0:
+        new_x_start = 0
+        new_x_end = size[0] + offsets[0]
+        old_x_start = -offsets[0]
+        old_x_end   = size[0]
+    else:
+        new_x_start = offsets[0]
+        new_x_end = size[0]
+        old_x_start = 0
+        old_x_end   = size[0] - offsets[0]
+
+    if offsets[1]<0:
+        new_y_start = 0
+        new_y_end = size[1] + offsets[1]
+        old_y_start = -offsets[1]
+        old_y_end   = size[1]
+    else:
+        new_y_start = offsets[1]
+        new_y_end = size[1]
+        old_y_start = 0
+        old_y_end   = size[1] - offsets[1]
+
+    new_sls = tuple([slice(new_x_start, new_x_end), slice(new_y_start, new_y_end)])
+    old_sls = tuple([slice(old_x_start, old_x_end), slice(old_y_start, old_y_end)])
+
+    ret = []
+    for old in img:
+        new = np.zeros(size)
+        new[new_sls] = old[old_sls]
+        ret.append(new)
+    return np.array(ret)
