@@ -108,7 +108,7 @@ class ChestLandmarkMaskDataset(Dataset):
                 lms_mask[i] = 0
                 continue
         
-        return torch.FloatTensor(img), torch.FloatTensor(lms_heatmap), lms_mask
+        return torch.FloatTensor(img), torch.FloatTensor(lms_heatmap), torch.FloatTensor(lms_mask)
 
     def __len__(self):
         return len(self.img_list)

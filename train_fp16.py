@@ -64,7 +64,6 @@ def main(config_file):
     testloader = data.DataLoader(
         testset, batch_size=common_config['test_batch'], shuffle=False, num_workers=2)
     
-
     # Model
     print("==> creating model '{}'".format(common_config['arch']))
     # Model
@@ -128,9 +127,17 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None, sched
     losses     = AverageMeter()
     end        = time.time()
 
-    for batch_idx, (inputs, targets) in enumerate(trainloader):
+    for batch_idx, datas in enumerate(trainloader):
         # measure data loading time
         data_time.update(time.time() - end)
+        if len(datas) == 3:
+            inputs, targets, masks = datas
+            if use_cuda:
+                masks = masks.cuda()
+            masks = torch.autograd.Variable(masks)
+        else:
+            inputs, targets= datas 
+            masks = None
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
         inputs = torch.autograd.Variable(inputs)
@@ -141,13 +148,13 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None, sched
         
         if scaler is None:
             outputs = model(inputs)
-            loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
+            loss = criterion(outputs, targets, masks) / (outputs.size(0)*outputs.size(1))
             loss.backward()
             optimizer.step()
         else:
             with torch.cuda.amp.autocast():
                 outputs = model(inputs)
-                loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
+                loss = criterion(outputs, targets, datas) / (outputs.size(0)*outputs.size(1))
             # Scales loss.  Calls backward() on scaled loss to create scaled gradients.
             # Backward passes under autocast are not recommended.
             # Backward ops run in the same dtype autocast chose for corresponding forward ops.
@@ -181,22 +188,32 @@ def test(testloader, model, criterion, use_cuda, common_config, scaler=None, vis
 
     end = time.time()
     index = 0
-    for batch_idx, (inputs, targets) in enumerate(testloader):
+    for batch_idx, datas in enumerate(testloader):
         # measure data loading time
         data_time.update(time.time() - end)
 
+        if len(datas) == 3:
+            inputs, targets, masks = datas
+            if use_cuda:
+                masks = masks.cuda()
+            masks = torch.autograd.Variable(masks)
+        else:
+            inputs, targets= datas 
+            masks = None
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
-        inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
+        inputs = torch.autograd.Variable(inputs)
+        targets = torch.autograd.Variable(targets)
+
         # compute output
         if scaler is not None:
             with torch.cuda.amp.autocast():
                 outputs = model(inputs)
-                loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
+                loss = criterion(outputs, targets, masks) / (outputs.size(0)*outputs.size(1))
         else:
             with torch.no_grad():
                 outputs = model(inputs)
-                loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
+                loss = criterion(outputs, targets, datas) / (outputs.size(0)*outputs.size(1))
 
         if visualize:
             save_folder = os.path.join(common_config['save_path'], 'results/')
