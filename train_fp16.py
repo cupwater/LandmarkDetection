@@ -154,7 +154,7 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None, sched
         else:
             with torch.cuda.amp.autocast():
                 outputs = model(inputs)
-                loss = criterion(outputs, targets, datas) / (outputs.size(0)*outputs.size(1))
+                loss = criterion(outputs, targets, masks) / (outputs.size(0)*outputs.size(1))
             # Scales loss.  Calls backward() on scaled loss to create scaled gradients.
             # Backward passes under autocast are not recommended.
             # Backward ops run in the same dtype autocast chose for corresponding forward ops.

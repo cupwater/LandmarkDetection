@@ -139,9 +139,17 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scheduler=None):
     losses     = AverageMeter()
     end        = time.time()
 
-    for batch_idx, (inputs, targets) in enumerate(trainloader):
+    for batch_idx, datas in enumerate(trainloader):
         # measure data loading time
         data_time.update(time.time() - end)
+        if len(datas) == 3:
+            inputs, targets, masks = datas
+            if use_cuda:
+                masks = masks.cuda()
+            masks = torch.autograd.Variable(masks)
+        else:
+            inputs, targets= datas 
+            masks = None
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
         inputs = torch.autograd.Variable(inputs)
@@ -174,14 +182,21 @@ def validate(testloader, model, criterion, use_cuda, common_config, visualize=Fa
     losses = AverageMeter()
 
     end = time.time()
-    for batch_idx, (inputs, targets) in enumerate(testloader):
+    for batch_idx, datas in enumerate(testloader):
         # measure data loading time
         data_time.update(time.time() - end)
-
+        if len(datas) == 3:
+            inputs, targets, masks = datas
+            if use_cuda:
+                masks = masks.cuda()
+            masks = torch.autograd.Variable(masks)
+        else:
+            inputs, targets= datas 
+            masks = None
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
-        inputs, targets = torch.autograd.Variable(
-            inputs, volatile=True), torch.autograd.Variable(targets)
+        inputs = torch.autograd.Variable(inputs)
+        targets = torch.autograd.Variable(targets)
         # compute output
         outputs = model(inputs)
         loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
