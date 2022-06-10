@@ -122,19 +122,22 @@ def main():
     lms_array_withmask_test = lms_array_withmask[withmask_test_idxs, :]
 
     np.savetxt(landmarks_path, lms_array_withmask, fmt='%.3f')
-    with open(landmarks_path, 'r+') as f:  
+    with open(landmarks_path, 'r+') as f:
+        old_content = f.read()
         f.seek(0, 0)
-        f.write(str(lms_array_withmask.shape[0]) + '\n')
-        
+        f.write(str(lms_array_withmask.shape[0]) + '\n' + old_content)
+
     np.savetxt(landmarks_path.split('.')[0] + '_train.txt', lms_array_withmask_train, fmt='%.3f')
-    with open(landmarks_path.split('.')[0] + '_train.txt', 'r+') as f:  
+    with open(landmarks_path.split('.')[0] + '_train.txt', 'r+') as f:
+        old_content = f.read()
         f.seek(0, 0)
-        f.write(str(lms_array_withmask_train.shape[0]) + '\n')
+        f.write(str(lms_array_withmask_train.shape[0]) + '\n' + old_content)
 
     np.savetxt(landmarks_path.split('.')[0] + '_test.txt', lms_array_withmask_test, fmt='%.3f')
-    with open(landmarks_path.split('.')[0] + '_test.txt', 'r+') as f:  
+    with open(landmarks_path.split('.')[0] + '_test.txt', 'r+') as f:
+        old_content = f.read()
         f.seek(0, 0)
-        f.write(str(lms_array_withmask_test.shape[0]) + '\n')
+        f.write(str(lms_array_withmask_test.shape[0]) + '\n' + old_content)
     
 
     landmarks_path = os.path.join(os.path.dirname(img_list), 'lms_filter.txt')
@@ -143,19 +146,22 @@ def main():
     lms_array_filter_test = lms_array_filter[filter_test_idxs, :]
 
     np.savetxt(landmarks_path, lms_array_filter, fmt='%.3f')
-    with open(landmarks_path, 'r+') as f:  
+    with open(landmarks_path, 'r+') as f:
+        old_content = f.read()
         f.seek(0, 0)
-        f.write(str(lms_array_filter.shape[0]) + '\n')
+        f.write(str(lms_array_filter.shape[0]) + '\n' + old_content)
 
     np.savetxt(landmarks_path.split('.')[0] + '_train.txt', lms_array_filter_train, fmt='%.3f')
-    with open(landmarks_path.split('.')[0] + '_train.txt', 'r+') as f:  
+    with open(landmarks_path.split('.')[0] + '_train.txt', 'r+') as f:
+        old_content = f.read()
         f.seek(0, 0)
-        f.write(str(lms_array_filter_train.shape[0]) + '\n')
+        f.write(str(lms_array_filter_train.shape[0]) + '\n' + old_content)
 
     np.savetxt(landmarks_path.split('.')[0] + '_test.txt', lms_array_filter_test, fmt='%.3f')
-    with open(landmarks_path.split('.')[0] + '_test.txt', 'r+') as f:  
+    with open(landmarks_path.split('.')[0] + '_test.txt', 'r+') as f:
+        old_content = f.read()
         f.seek(0, 0)
-        f.write(str(lms_array_filter_test.shape[0]) + '\n')
+        f.write(str(lms_array_filter_test.shape[0]) + '\n' + old_content)
     
 if __name__ == '__main__':
     main()
