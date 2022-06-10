@@ -55,7 +55,7 @@ def main(config_file):
         data_config['train_list'], data_config['train_meta'], augment_config,
         prefix=data_config['prefix'])
     testset = dataset.__dict__[data_config['type']](
-        data_config['test_list'], data_config['test_meta'], augment_config,
+        data_config['test_list'], data_config['test_meta'], {'rotate_angle': 0, 'offset': [0,0]},
         prefix=data_config['prefix'])
     
     # create dataloader for training and testing
