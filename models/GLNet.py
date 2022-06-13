@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 from .unet_dw  import UNetDW
 from .unet_ori  import UNet
+from  .att_unet_ori import AttUNet
 from .globalNet import globalNet
 
 
