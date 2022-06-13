@@ -66,8 +66,7 @@ def main(config_file):
     
     # Model
     print("==> creating model '{}'".format(common_config['arch']))
-    # Model
-    print("==> creating model '{}'".format(common_config['arch']))
+
     model = models.__dict__[common_config['arch']](
         num_classes=data_config['num_classes'])
     model = torch.nn.DataParallel(model)
