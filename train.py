@@ -53,7 +53,7 @@ def main(config_file):
         data_config['train_list'], data_config['train_meta'], augment_config,
         prefix=data_config['prefix'])
     testset = dataset.__dict__[data_config['type']](
-        data_config['test_list'], data_config['test_meta'], augment_config,
+        data_config['test_list'], data_config['test_meta'], {'rotate_angle': 0, 'offset': [0,0]},
         prefix=data_config['prefix'])
 
     # create dataloader for training and testing
@@ -154,7 +154,7 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scheduler=None):
         targets = torch.autograd.Variable(targets)
         outputs = model(inputs)
 
-        loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
+        loss = criterion(outputs, targets, masks) / (outputs.size(0)*outputs.size(1))
         losses.update(loss.item(), inputs.size(0))
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -197,7 +197,7 @@ def validate(testloader, model, criterion, use_cuda, common_config, visualize=Fa
         targets = torch.autograd.Variable(targets)
         # compute output
         outputs = model(inputs)
-        loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
+        loss = criterion(outputs, targets, masks) / (outputs.size(0)*outputs.size(1))
         losses.update(loss.item(), inputs.size(0))
 
         if visualize:

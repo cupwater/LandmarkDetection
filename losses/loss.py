@@ -38,7 +38,7 @@ class TorchBCELoss(nn.Module):
         super(TorchBCELoss, self).__init__()
         self.loss_fun = torch.nn.BCELoss(reduction=reduction)
 
-    def forward(self, logits, target):
+    def forward(self, logits, target, mask=None):
         loss = self.loss_fun(logits, target)
         return loss
 
@@ -49,7 +49,7 @@ class BCELoss(nn.Module):
         self.eps = 1e-6
         self.reduction = 'sum'
 
-    def forward(self, logits, target):
+    def forward(self, logits, target, mask=None):
         # logits: [N, *], target: [N, *]
         loss = - self.pos_weight * target * torch.log(logits+self.eps) - \
                (1 - target) * torch.log(1 - logits - self.eps)
