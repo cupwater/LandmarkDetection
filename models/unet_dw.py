@@ -109,10 +109,10 @@ class OutConv(nn.Module):
 
 class UNetDW(nn.Module):
 
-    def __init__(self, num_classes=2, bilinear=True):
+    def __init__(self, num_classes=2, in_channels=3, bilinear=True):
         super(UNetDW, self).__init__()
         self.bilinear = bilinear
-        self.in1  = OutConv(3, 64)
+        self.in1  = OutConv(in_channels, 64)
         self.out1 = OutConv(64, num_classes)
 
         self.conv = DoubleConv(64, 64)
