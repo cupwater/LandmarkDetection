@@ -1,7 +1,7 @@
 '''
 Author: Peng Bo
 Date: 2022-05-15 17:38:02
-LastEditTime: 2022-06-08 20:58:55
+LastEditTime: 2022-06-23 16:55:11
 Description: utils for landmark_dataset, including heatmap generation
 
 '''
@@ -38,6 +38,8 @@ def gaussianHeatmap(sigma, dim: int = 2, nsigma: int = 3):
 
     def genHeatmap(point, shape):
         ret = np.zeros(shape, dtype=np.float)
+        if point[0] <= 0 or point[1] <= 0:
+            return ret
         bboxs = [(max(0, point[ax]-radius), min(shape[ax], point[ax]+radius))
                  for ax in range(dim)]
         img_sls = tuple([slice(i, j) for i, j in bboxs])

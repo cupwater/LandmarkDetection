@@ -116,8 +116,8 @@ class ChestLandmarkMaskDataset(Dataset):
 
 if __name__ == "__main__":
     prefix = '../data/26_landmarks'
-    img_list = '../data/imglist_filter_train.txt'
-    meta = '../data/lms_filter_train.txt'
+    img_list = '../data/imglist_withmask_train.txt'
+    meta = '../data/lms_withmask_train.txt'
 
     transform_list = {'rotate_angle': 10, 'offset': [10,10]}
     chest_dataset = ChestLandmarkMaskDataset(img_list, meta, transform_list, prefix)
