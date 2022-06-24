@@ -76,7 +76,7 @@ def main(config_file):
 
     # optimizer and scheduler
     state['lr'] = common_config['lr']
-    criterion = losses.__dict__[config['loss_config']['type']]()
+    criterion = losses.__dict__[config['loss_config']['type']]( reduction = 'keep')
     
     optimizer = optim.Adam(
        filter(
@@ -99,7 +99,7 @@ def main(config_file):
         print('\nEpoch: [%d | %d] LR: %f' %
                 (epoch + 1, common_config['epoch'], state['lr']))
         train_loss, ep_train_loss = train(trainloader, model, criterion, optimizer, use_cuda, scaler, scheduler)
-        test_loss, ep_test_loss = test(testloader, model, criterion, use_cuda, common_config, scaler, args.visualize)
+        test_loss, ep_test_loss  = test(testloader, model, criterion, use_cuda, common_config, scaler, args.visualize)
         # save model
         is_best = test_loss < best_loss
         best_loss = min(test_loss, best_loss)
@@ -127,6 +127,9 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None, sched
     losses     = AverageMeter()
     end        = time.time()
 
+
+    lms_detail_fout = open('lms_detail_train_loss.txt', 'a+')
+
     for batch_idx, datas in enumerate(trainloader):
         # measure data loading time
         data_time.update(time.time() - end)
@@ -148,13 +151,14 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None, sched
         
         if scaler is None:
             outputs = model(inputs)
-            loss = criterion(outputs, targets, masks) / (outputs.size(0)*outputs.size(1))
-            loss.backward()
+            lms_loss_list = criterion(outputs, targets, masks)
+            loss = torch.mean(lms_loss_list)
             optimizer.step()
         else:
             with torch.cuda.amp.autocast():
                 outputs = model(inputs)
-                loss = criterion(outputs, targets, masks) / (outputs.size(0)*outputs.size(1))
+                lms_loss_list = criterion(outputs, targets, masks)
+                loss = torch.mean(lms_loss_list)
             # Scales loss.  Calls backward() on scaled loss to create scaled gradients.
             # Backward passes under autocast are not recommended.
             # Backward ops run in the same dtype autocast chose for corresponding forward ops.
@@ -166,6 +170,11 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None, sched
             # Updates the scale for next iteration.
             scaler.update()
 
+        lms_losses = lms_loss_list.detach().cpu().numpy().tolist()
+        lms_losses = [ str(round(loss,2)) for loss in lms_losses ]
+        lms_detail_fout.write('\t'.join(lms_losses))
+        lms_detail_fout.write('\n')
+
         losses.update(loss.item(), inputs.size(0))
         progress_bar(batch_idx, len(trainloader), 'Loss: %.2f' % (losses.avg))
         scheduler.step()
@@ -174,6 +183,7 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None, sched
         batch_time.update(time.time() - end)
         end = time.time()
 
+    lms_detail_fout.close()
     return losses.avg, loss.item()
 
 
@@ -185,6 +195,7 @@ def test(testloader, model, criterion, use_cuda, common_config, scaler=None, vis
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
+    lms_detail_fout = open('lms_detail_test_loss.txt', 'a+')
 
     end = time.time()
     index = 0
@@ -209,11 +220,19 @@ def test(testloader, model, criterion, use_cuda, common_config, scaler=None, vis
         if scaler is not None:
             with torch.cuda.amp.autocast():
                 outputs = model(inputs)
-                loss = criterion(outputs, targets, masks) / (outputs.size(0)*outputs.size(1))
+                lms_loss_list = criterion(outputs, targets, masks)
+                loss = torch.mean(lms_loss_list)
+                #loss = criterion(outputs, targets, masks) / (outputs.size(0)*outputs.size(1))
         else:
             with torch.no_grad():
                 outputs = model(inputs)
-                loss = criterion(outputs, targets, datas) / (outputs.size(0)*outputs.size(1))
+                lms_loss_list = criterion(outputs, targets, masks)
+                loss = torch.mean(lms_loss_list)
+                #loss = criterion(outputs, targets, datas) / (outputs.size(0)*outputs.size(1))
+        lms_losses = lms_loss_list.detach().cpu().numpy().tolist()
+        lms_losses = [ str(round(loss,2)) for loss in lms_losses ]
+        lms_detail_fout.write('\t'.join(lms_losses))
+        lms_detail_fout.write('\n')
 
         if visualize:
             save_folder = os.path.join(common_config['save_path'], 'results/')
@@ -232,6 +251,7 @@ def test(testloader, model, criterion, use_cuda, common_config, scaler=None, vis
         batch_time.update(time.time() - end)
         end = time.time()
 
+    lms_detail_fout.close()
     return losses.avg, loss.item()
 
 
