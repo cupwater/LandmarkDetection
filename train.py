@@ -26,7 +26,7 @@ import losses
 
 
 state = {}
-best_loss = 0
+best_loss = 10000
 use_cuda = False
 
 
@@ -70,6 +70,7 @@ def main(config_file):
         num_classes=data_config['num_classes'])
     model = torch.nn.DataParallel(model)
 
+    use_cuda = torch.cuda.is_available()
     if use_cuda:
         model = model.cuda()
     cudnn.benchmark = True

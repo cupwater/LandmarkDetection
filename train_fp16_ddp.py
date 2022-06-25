@@ -23,7 +23,7 @@ import losses
 import cv2
 
 state = {}
-best_loss = 0
+best_loss = 10000
 use_cuda = False
 exectime = time.time()
 

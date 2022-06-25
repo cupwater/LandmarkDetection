@@ -21,8 +21,8 @@ import losses
 import cv2
 
 state = {}
-best_loss = 0
-use_cuda = True
+best_loss = 10000
+use_cuda = False
 exectime = time.time()
 
 def main(config_file):
@@ -71,6 +71,7 @@ def main(config_file):
     model = models.__dict__[common_config['arch']](
         num_classes=data_config['num_classes'], local_net=common_config['local_net'])
     model = torch.nn.DataParallel(model)
+    use_cuda = torch.cuda.is_available()
     if use_cuda:
         model = model.cuda()
 
