@@ -13,7 +13,6 @@ import torch
 import torch.utils.data as data
 import torch.optim as optim
 
-from augmentation.medical_augment import LmsDetectTrainTransform, LmsDetectTestTransform
 import models
 import dataset
 from utils import Logger, AverageMeter, mkdir_p, progress_bar, visualize_heatmap, get_landmarks_from_heatmap
@@ -32,9 +31,8 @@ def main(config_file):
     with open(config_file) as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
     common_config = config['common']
+    common_config['save_path'] = os.path.dirname(config_file)
 
-    if not os.path.isdir(common_config['save_path']):
-        mkdir_p(common_config['save_path'])
     # logger
     title = 'Chest landamrks detection using' + \
         common_config['arch']
@@ -45,9 +43,6 @@ def main(config_file):
 
     # initial dataset and dataloader
     augment_config = config['augmentation']
-    # Dataset and Dataloader
-    transform_train = LmsDetectTrainTransform(augment_config['rotate_angle'], augment_config['offset'])
-    transform_test = LmsDetectTestTransform()
     data_config = config['dataset']
     print('==> Preparing dataset %s' % data_config['type'])
     # create dataset for training and testing

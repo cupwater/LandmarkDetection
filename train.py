@@ -17,11 +17,10 @@ import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.utils.data as data
-from augmentation.medical_augment import LmsDetectTrainTransform, LmsDetectTestTransform
 
 import models
 import dataset
-from utils import Logger, AverageMeter, mkdir_p, progress_bar, visualize_heatmap, get_landmarks_from_heatmap
+from utils import Logger, AverageMeter, progress_bar, visualize_heatmap, get_landmarks_from_heatmap
 import losses
 
 
@@ -37,16 +36,12 @@ def main(config_file):
     with open(config_file) as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
     common_config = config['common']
+    common_config['save_path'] = os.path.dirname(config_file)
 
     state['lr'] = common_config['lr']
-    if not os.path.isdir(common_config['save_path']):
-        mkdir_p(common_config['save_path'])
     use_cuda = torch.cuda.is_available()
 
     augment_config = config['augmentation']
-    # Dataset and Dataloader
-    transform_train = LmsDetectTrainTransform(augment_config['rotate_angle'], augment_config['offset'])
-    transform_test = LmsDetectTestTransform()
     
     data_config = config['dataset']
     print('==> Preparing dataset %s' % data_config['type'])
