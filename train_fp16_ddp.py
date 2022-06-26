@@ -12,13 +12,14 @@ import yaml
 import torch
 import torch.optim as optim
 import torch.distributed as dist
+import torch.utils.data as data
 
 import pdb
 
 from augmentation.medical_augment import LmsDetectTrainTransform, LmsDetectTestTransform
 import models
 import dataset
-from utils import Logger, AverageMeter, mkdir_p, progress_bar
+from utils import Logger, AverageMeter, mkdir_p, progress_bar, visualize_heatmap, get_landmarks_from_heatmap
 import losses
 import cv2
 
@@ -71,10 +72,10 @@ def main(config_file):
     print('==> Preparing dataset %s' % data_config['type'])
     # create dataset for training and testing
     trainset = dataset.__dict__[data_config['type']](
-        data_config['train_list'], data_config['train_meta'], transform_train,
+        data_config['train_list'], data_config['train_meta'], augment_config,
         prefix=data_config['prefix'])
     testset = dataset.__dict__[data_config['type']](
-        data_config['test_list'], data_config['test_meta'], transform_test,
+        data_config['test_list'], data_config['test_meta'],  {'rotate_angle': 0, 'offset': [0,0]},
         prefix=data_config['prefix'])
     train_sampler = torch.utils.data.distributed.DistributedSampler(
         trainset, shuffle=True)
@@ -87,12 +88,8 @@ def main(config_file):
 
     # Model
     print("==> creating model '{}'".format(common_config['arch']))
-    # resnet34
-    # model = models.__dict__[common_config['arch']](
-    #     num_classes=data_config['num_classes'],pretrained=True)
-    # GLNet
     model = models.__dict__[common_config['arch']](
-        num_classes=data_config['num_classes'])
+        num_classes=data_config['num_classes'], local_net=common_config['local_net'])
     process_group = torch.distributed.new_group(list(range(world_size)))
     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model, process_group).to(local_rank)
     for ps in model.parameters():
@@ -102,7 +99,7 @@ def main(config_file):
 
     # optimizer and scheduler
     state['lr'] = common_config['lr']
-    criterion = losses.__dict__[config['loss_config']['type']]()
+    criterion = losses.__dict__[config['loss_config']['type']]( reduction = 'keep')
     
     optimizer = optim.Adam(
        filter(
@@ -110,25 +107,23 @@ def main(config_file):
            model.parameters()),
         lr=common_config['lr'],
         weight_decay=common_config['weight_decay'])
+    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, **common_config[common_config['scheduler_lr']])
 
-    #optimizer = optim.SGD(
-    #    filter(
-    #        lambda p: p.requires_grad,
-    #        model.parameters()),
-    #    lr=common_config['lr'],
-    #    momentum=0.9,
-    #    weight_decay=common_config['weight_decay'])
+    if args.visualize:
+        checkpoints = torch.load(os.path.join(common_config['save_path'], 'checkpoint.pth.tar'))
+        model.load_state_dict(checkpoints['state_dict'], False)
+        test(testloader, model, criterion, use_cuda, common_config, visualize=args.visualize)
+        return
 
     # Creates a GradScaler once at the beginning of training.
     scaler = torch.cuda.amp.GradScaler(enabled=True) if config['common']['fp16'] == True else None
     # Train and val
     for epoch in range(common_config['epoch']):
-        adjust_learning_rate(optimizer, epoch, common_config)
         if rank == 0:
             print('\nEpoch: [%d | %d] LR: %f' %
                 (epoch + 1, common_config['epoch'], state['lr']))
-        train_loss, ep_train_loss = train(trainloader, model, criterion, optimizer, use_cuda, scaler)
-        test_loss, ep_test_loss = test(testloader, model, criterion, use_cuda, epoch+1, scaler)
+        train_loss, ep_train_loss = train(trainloader, model, criterion, optimizer, use_cuda, scaler, scheduler)
+        test_loss, ep_test_loss  = test(testloader, model, criterion, use_cuda, common_config, scaler, args.visualize)
         # save model
         is_best = test_loss < best_loss
         best_loss = min(test_loss, best_loss)
@@ -148,7 +143,7 @@ def main(config_file):
         print('Best loss:' + str(best_loss))
 
 
-def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None):
+def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None, scheduler=None):
     # switch to train mode
     model.train()
 
@@ -157,9 +152,17 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None):
     losses     = AverageMeter()
     end        = time.time()
 
-    for batch_idx, (inputs, targets) in enumerate(trainloader):
+    for batch_idx, datas in enumerate(trainloader):
         # measure data loading time
         data_time.update(time.time() - end)
+        if len(datas) == 3:
+            inputs, targets, masks = datas
+            if use_cuda:
+                masks = masks.cuda()
+            masks = torch.autograd.Variable(masks)
+        else:
+            inputs, targets= datas 
+            masks = None
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
         inputs = torch.autograd.Variable(inputs)
@@ -167,13 +170,17 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None):
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
-        #with torch.cuda.amp.autocast():
-        outputs = model(inputs)
-        loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
+        
         if scaler is None:
-            loss.backward()
+            outputs = model(inputs)
+            lms_loss_list = criterion(outputs, targets, masks)
+            loss = torch.mean(lms_loss_list)
             optimizer.step()
         else:
+            with torch.cuda.amp.autocast():
+                outputs = model(inputs)
+                lms_loss_list = criterion(outputs, targets, masks)
+                loss = torch.mean(lms_loss_list)
             # Scales loss.  Calls backward() on scaled loss to create scaled gradients.
             # Backward passes under autocast are not recommended.
             # Backward ops run in the same dtype autocast chose for corresponding forward ops.
@@ -188,6 +195,7 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None):
         losses.update(loss.item(), inputs.size(0))
         if int(os.environ['RANK']) == 0:
             progress_bar(batch_idx, len(trainloader), 'Loss: %.2f' % (losses.avg))
+        scheduler.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -196,7 +204,7 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scaler=None):
     return losses.avg, loss.item()
 
 
-def test(testloader, model, criterion, use_cuda, epoch, scaler=None):
+def test(testloader, model, criterion, use_cuda, common_config, scaler=None, visualize=None):
     global best_acc
     # switch to evaluate mode
     model.eval()
@@ -206,47 +214,46 @@ def test(testloader, model, criterion, use_cuda, epoch, scaler=None):
     losses = AverageMeter()
 
     end = time.time()
-    index = 0
-    for batch_idx, (inputs, targets) in enumerate(testloader):
+    for batch_idx, datas in enumerate(testloader):
         # measure data loading time
         data_time.update(time.time() - end)
-
+        if len(datas) == 3:
+            inputs, targets, masks = datas
+            if use_cuda:
+                masks = masks.cuda()
+            masks = torch.autograd.Variable(masks)
+        else:
+            inputs, targets= datas 
+            masks = None
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
-        inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
+        inputs = torch.autograd.Variable(inputs)
+        targets = torch.autograd.Variable(targets)
+
         # compute output
         if scaler is not None:
             with torch.cuda.amp.autocast():
                 outputs = model(inputs)
-                loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
+                lms_loss_list = criterion(outputs, targets, masks)
+                loss = torch.mean(lms_loss_list)
         else:
             with torch.no_grad():
                 outputs = model(inputs)
-                loss = criterion(outputs, targets) / (outputs.size(0)*outputs.size(1))
-
+                lms_loss_list = criterion(outputs, targets, masks)
+                loss = torch.mean(lms_loss_list)
+        if visualize:
+            save_folder = os.path.join(common_config['save_path'], 'results/')
+            if not os.path.exists(save_folder):
+                os.makedirs(save_folder)
+            for i in range(inputs.size(0)):
+                landmarks = get_landmarks_from_heatmap(outputs[i].detach())
+                visualize_img = visualize_heatmap(inputs[i], landmarks)
+                save_path = os.path.join(save_folder, str(batch_idx*inputs.size(0) + i)+'.jpg')
+                cv2.imwrite(save_path, visualize_img)
+        
         losses.update(loss.item(), inputs.size(0))
         if int(os.environ['RANK']) == 0:
             progress_bar(batch_idx, len(testloader), 'Loss: %.2f' % (losses.avg))
-
-            #from dataset.util import getPointsFromHeatmap
-            #for input, output in zip(inputs, outputs):
-            #    points = getPointsFromHeatmap(output)
-            #    # tensor to numpy.ndarray
-            #    input = input.detach().cpu().numpy()[0]
-            #    input = cv2.merge([input,input,input])
-            #    for point in points:
-            #        p1 = point[0].item()
-            #        p2 = point[1].item()
-            #        cv2.circle(input, (p2, p1), 2, (0, 0, 255), 2)
-            #    timestamp = str(hash(exectime))[-6:]
-
-            #    if not os.path.exists('./runs/vis-process{}/ep{}'.format(timestamp, epoch)):
-            #        os.makedirs('./runs/vis-process{}/ep{}'.format(timestamp, epoch))
-            #    cv2.imwrite('./runs/vis-process{}/ep{}/{}.png'.format(timestamp, epoch, index), input)
-
-            #    index += 1
-
-
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
@@ -262,14 +269,6 @@ def save_checkpoint(state, is_best, save_path, filename='checkpoint.pth.tar'):
             save_path, 'model_best.pth.tar'))
 
 
-def adjust_learning_rate(optimizer, epoch, config):
-    global state
-    if epoch in config['scheduler']:
-        state['lr'] *= config['gamma']
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = state['lr']
-
-
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(
@@ -277,7 +276,11 @@ if __name__ == '__main__':
     # model related, including  Architecture, path, datasets
     parser.add_argument('--config-file', type=str,
                         default='experiments/template/landmark_detection_template.yaml')
-    parser.add_argument('--local_rank', type=int, help='local_rank')
+    parser.add_argument('--gpu-id', type=str, default='0')
+    parser.add_argument('--visualize', action='store_true')
+    parser.add_argument("--local_rank", default=-1)
     args = parser.parse_args()
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     main(args.config_file)
+
 
