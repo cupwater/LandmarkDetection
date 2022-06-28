@@ -1,7 +1,7 @@
 '''
 Author: Peng Bo
 Date: 2022-05-15 17:38:02
-LastEditTime: 2022-06-23 16:55:11
+LastEditTime: 2022-06-28 22:59:30
 Description: utils for landmark_dataset, including heatmap generation
 
 '''
@@ -9,6 +9,8 @@ Description: utils for landmark_dataset, including heatmap generation
 from itertools import product
 import numpy as np
 from skimage import transform as sktrans
+
+IMG_SIZE = (512,512)
 
 def norm(x, vmin=None, vmax=None):
     if vmin is None or vmax is None:
@@ -38,7 +40,7 @@ def gaussianHeatmap(sigma, dim: int = 2, nsigma: int = 3):
 
     def genHeatmap(point, shape):
         ret = np.zeros(shape, dtype=np.float)
-        if point[0] <= 0 or point[1] <= 0:
+        if point[0] <= 0 or point[1] <= 0 or point[0]>IMG_SIZE[0] or point[1]>IMG_SIZE[1]:
             return ret
         bboxs = [(max(0, point[ax]-radius), min(shape[ax], point[ax]+radius))
                  for ax in range(dim)]
@@ -47,9 +49,10 @@ def gaussianHeatmap(sigma, dim: int = 2, nsigma: int = 3):
         mask_begins = [max(0, radius-point[ax]) for ax in range(dim)]
         mask_sls = tuple([slice(beg, beg+j-i)
                           for beg, (i, j) in zip(mask_begins, bboxs)])
+        
         ret[img_sls] = mask[mask_sls]
-
         return ret
+    
     return genHeatmap
 
 
