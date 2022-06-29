@@ -106,10 +106,11 @@ if __name__ == "__main__":
         cv2.imwrite(save_path, aligned_img)
 
         aligned_lms_list.append(transformed_pts)
-    aligned_lms_list = np.array(aligned_lms_list).reshape(len(img_list), -1)
+    aligned_lms_list = np.array(aligned_lms_list).reshape(len(img_list), -1, 2)
     # normalize to 0~1
-    aligned_lms_list[:,0] = aligned_lms_list[:,0]/IMG_SIZE[0]
-    aligned_lms_list[:,1] = aligned_lms_list[:,1]/IMG_SIZE[1]
+    aligned_lms_list[:, :, 0] = aligned_lms_list[:, :, 0]/IMG_SIZE[0]
+    aligned_lms_list[:, :, 1] = aligned_lms_list[:, :, 1]/IMG_SIZE[1]
+    aligned_lms_list = aligned_lms_list.reshape(len(img_list), -1)
 
     save_path = os.path.join('data/aligned_26_landmarks', os.path.basename(lms_path))
     np.savetxt(save_path, aligned_lms_list, fmt='%.3f')
