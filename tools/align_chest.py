@@ -1,9 +1,16 @@
+'''
+Author: Peng Bo
+Date: 2022-06-29 14:00:46
+LastEditTime: 2022-07-06 01:34:46
+Description: 
+
+'''
 # -*- coding: utf-8 -*-
 #!/bin/bash
 '''
 Author: Peng Bo
 Date: 2022-06-27 10:54:30
-LastEditTime: 2022-06-27 19:21:56
+LastEditTime: 2022-07-05 23:21:52
 Description: Align the Chest Image using landmarks according to a reference image
 
 '''
@@ -68,8 +75,15 @@ def warp_and_crop_face(src_img, facial_pts, reference_pts, raw_lms=None, crop_si
     tfm = tform.params[0:2, :]
     
     if raw_lms is not None:
+        mask = [ 1 if p[0]>0 and p[1]>0 else 0 for p in raw_lms.tolist() ]
         pts = np.concatenate((raw_lms, np.ones(raw_lms.shape[0]).reshape(raw_lms.shape[0], -1)), axis=1)
         transformed_pts = np.dot(tfm, pts.T).T
+        mask = np.array(mask).reshape(-1,1)
+        transformed_pts = np.repeat(mask, 2, axis=1) * transformed_pts
+        transformed_pts[transformed_pts==0] = -IMG_SIZE[0]
+        transformed_pts[transformed_pts>IMG_SIZE[0]] = -IMG_SIZE[0]
+        transformed_pts[transformed_pts<0] = -IMG_SIZE[0]
+        # pdb.set_trace()
     else:
         transformed_pts = None
     
@@ -81,7 +95,8 @@ if __name__ == "__main__":
     img_path = sys.argv[1]
     lms_path = sys.argv[2]
     prefix   = sys.argv[3]
-    
+    out_prefix = sys.argv[4]
+
     img_list = open(img_path).readlines()
     img_list = [line.strip() for line in img_list]
     lms_list = []
@@ -100,7 +115,7 @@ if __name__ == "__main__":
         src_img = cv2.imread(os.path.join(prefix, src_img))
         aligned_img, transformed_pts = warp_and_crop_face(src_img, src_lms, ref_points, raw_lms, crop_size=IMG_SIZE)
 
-        save_path = os.path.join('data/aligned_26_landmarks', img_list[idx])
+        save_path = os.path.join(out_prefix, img_list[idx])
         if not os.path.exists(os.path.dirname(save_path)):
             os.makedirs(os.path.dirname(save_path))
         cv2.imwrite(save_path, aligned_img)
@@ -112,7 +127,7 @@ if __name__ == "__main__":
     aligned_lms_list[:, :, 1] = aligned_lms_list[:, :, 1]/IMG_SIZE[1]
     aligned_lms_list = aligned_lms_list.reshape(len(img_list), -1)
 
-    save_path = os.path.join('data/aligned_26_landmarks', os.path.basename(lms_path))
+    save_path = os.path.join(out_prefix, os.path.basename(lms_path))
     np.savetxt(save_path, aligned_lms_list, fmt='%.3f')
     with open(save_path, 'r+') as f:  
         content = f.read()

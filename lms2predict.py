@@ -3,15 +3,19 @@
 '''
 Author: Peng Bo
 Date: 2022-06-27 22:19:33
-LastEditTime: 2022-06-28 16:34:12
+LastEditTime: 2022-07-06 01:34:59
 Description: Use the landmarks to judge AI quality tasks
 
 '''
 
 import sys
-import os
+import pdb
 import numpy as np
 import math
+from sklearn.metrics import roc_curve
+
+from tools.parse_xlsx import merge_lms_metas
+
 
 semantic2idx = {
     'Clavicles_L':              0,
@@ -45,19 +49,16 @@ IMG_SIZE = (512, 512)
 
 
 def _symmetry_by_3points_(tgt_3pts, threshold=5):
-    a = tgt_3pts[0] - tgt_3pts[]
+    a = [tgt_3pts[0][0] - tgt_3pts[1][0], tgt_3pts[0][1] - tgt_3pts[1][1]]
     a = math.sqrt(a[0]*a[0] + a[1]*a[1])
-    b = tgt_3pts[0] - tgt_3pts[2]
+    b = [tgt_3pts[0][0] - tgt_3pts[2][0], tgt_3pts[0][1] - tgt_3pts[2][1]]
     b = math.sqrt(b[0]*b[0] + b[1]*b[1])
-    c = tgt_3pts[1] - tgt_3pts[2]
+    c = [tgt_3pts[1][0] - tgt_3pts[2][0], tgt_3pts[1][1] - tgt_3pts[2][1]]
     c = math.sqrt(c[0]*c[0] + c[1]*c[1])
-    alpha = math.acos(b*b + c*c - a*a) / (2*b*c) * 180 / math.pi
-    beta = math.acos(a*a + c*c - b*b) / (2*a*c) * 180 / math.pi
 
-    if math.abs(alpha - beta) < threshold:
-        return True
-    else:
-        False
+    alpha = math.acos((b*b + c*c - a*a) / (2*b*c)) * 180 / math.pi
+    beta = math.acos((a*a + c*c - b*b) / (2*a*c)) * 180 / math.pi
+    return abs(alpha - beta)
 
 
 def trachea_is_center(lms, threshold=5):
@@ -68,7 +69,8 @@ def trachea_is_center(lms, threshold=5):
     Trachea_lms = lms[semantic2idx['Trachea']]
     Clavicles_L_lms = lms[semantic2idx['Clavicles_L']]
     Clavicles_R_lms = lms[semantic2idx['Clavicles_R']]
-    return _symmetry_by_3points_([Trachea_lms, Clavicles_L_lms, Clavicles_R_lms], threshold)
+    diff = _symmetry_by_3points_([Trachea_lms, Clavicles_L_lms, Clavicles_R_lms], threshold)
+    return diff < threshold, diff
 
 
 def thorax_is_symmetry(lms, threshold=0):
@@ -87,10 +89,8 @@ def thorax_is_symmetry(lms, threshold=0):
     Rib_7th2_res = _symmetry_by_3points_(
         [Thoracic_1th_lms, Rib_7th_L2_lms, Rib_7th_R2_lms], threshold)
 
-    if Rib_7th1_res and Rib_7th2_res:
-        return True
-    else:
-        return False
+    diff = Rib_7th1_res + Rib_7th2_res
+    return diff < threshold, diff
 
 
 def diaphragm_under_rib10th(lms, threshold=5):
@@ -102,10 +102,9 @@ def diaphragm_under_rib10th(lms, threshold=5):
                            [1] + lms[semantic2idx['Costophrenic_angle_R2']][1]) / 2
     RIb_10th_height = (lms[semantic2idx['RIb_10th_L']]
                        [1] + lms[semantic2idx['RIb_10th_R']][1]) / 2
-    if Costophrenic_height - threshold > RIb_10th_height:
-        return True
-    else:
-        return False
+    
+    diff = Costophrenic_height - RIb_10th_height
+    return diff > threshold, diff
 
 
 def clavicles_is_isometry(lms, threshold=5):
@@ -115,10 +114,8 @@ def clavicles_is_isometry(lms, threshold=5):
     '''
     Clavicles_L_height = lms[semantic2idx['Clavicles_L']][1]
     Clavicles_R_height = lms[semantic2idx['Clavicles_R']][1]
-    if math.abs(Clavicles_L_height - Clavicles_R_height) < threshold:
-        return True
-    else:
-        return False
+    diff = abs(Clavicles_L_height - Clavicles_R_height)
+    return diff < threshold, diff
 
 
 def Sternoclavicular_is_symmetry(lms, threshold=5):
@@ -129,9 +126,9 @@ def Sternoclavicular_is_symmetry(lms, threshold=5):
     Thoracic_1th_lms = lms[semantic2idx['Thoracic_1th']]
     Sternoclavicular_L_lms = lms[semantic2idx['Sternoclavicular_joint_L']]
     Sternoclavicular_R_lms = lms[semantic2idx['Sternoclavicular_joint_R']]
-
-    return _symmetry_by_3points_([Thoracic_1th_lms, Sternoclavicular_L_lms, \
+    diff = _symmetry_by_3points_([Thoracic_1th_lms, Sternoclavicular_L_lms, \
             Sternoclavicular_R_lms], threshold)
+    return diff < threshold, diff
 
 
 def thoracic_7th_is_center(lms, threshold=5):
@@ -140,11 +137,10 @@ def thoracic_7th_is_center(lms, threshold=5):
         return True if yes, False for no 
     '''
     Thoracic_7th_lms = lms[semantic2idx['Thoracic_7th']]
-    if math.abs(Thoracic_7th_lms[0] - IMG_SIZE[0]) < threshold and \
-        math.abs(Thoracic_7th_lms[1] - IMG_SIZE[1]) < threshold:
-        return True
-    else:
-        return False
+    left_diff = abs(2*Thoracic_7th_lms[0] - IMG_SIZE[0])
+    right_diff = abs(2*Thoracic_7th_lms[1] - IMG_SIZE[1])
+    diff = 0.5 * (left_diff + right_diff)
+    return diff < threshold, diff
 
 
 def spine_parallel_vertical(lms, threshold=3):
@@ -156,11 +152,8 @@ def spine_parallel_vertical(lms, threshold=3):
     spine_lowest_lms = lms[semantic2idx['spine_lowest']]
     spine_vec = thoracic_1th_lms - spine_lowest_lms
     angle_yaxis = math.atan(spine_vec[0] / spine_vec[1])
-
-    if angle_yaxis < threshold:
-        return True
-    else:
-        return False
+    
+    return angle_yaxis < threshold, angle_yaxis
 
 
 def thoracic1th_35cm2upper(lms, threshold=1, cm_per_pixel=1):
@@ -169,11 +162,8 @@ def thoracic1th_35cm2upper(lms, threshold=1, cm_per_pixel=1):
         return True if yes, False for no 
     '''
     thoracic_1th_lms = lms[semantic2idx['thoracic_1th']]
-    dis = thoracic_1th_lms[1] * cm_per_pixel
-    if dis < threshold:
-        return True
-    else:
-        return False
+    diff  = thoracic_1th_lms[1] * cm_per_pixel - 4
+    return diff < threshold, diff
 
 
 def thorax_5cm2edge(lms, threshold=1, cm_per_pixe=1):
@@ -183,18 +173,13 @@ def thorax_5cm2edge(lms, threshold=1, cm_per_pixe=1):
     '''
     Costophrenic_angle_L2_lms = lms[semantic2idx['Costophrenic_angle_L2']]
     Costophrenic_angle_R2_lms = lms[semantic2idx['Costophrenic_angle_R2']]
-
     # left and right distance
     ldis = Costophrenic_angle_L2_lms[0] * cm_per_pixe
     rdis = (IMG_SIZE[0] - Costophrenic_angle_R2_lms[0]) * cm_per_pixe
 
-    if math.abs(ldis - 5) < threshold \
-        and math.abs(rdis - 5) < threshold \
-        and Costophrenic_angle_L2_lms[0] > 0 \
-        and Costophrenic_angle_R2_lms[0] < IMG_SIZE[0]:
-        return True
-    else:
-        False
+    diff = abs(ldis - 5) + abs(rdis - 5)
+    cond = Costophrenic_angle_L2_lms[0] > 0 and Costophrenic_angle_R2_lms[0] < IMG_SIZE[0]
+    return diff < threshold and cond, diff
 
 
 def lms2predict(lms):
@@ -202,6 +187,49 @@ def lms2predict(lms):
         use landmarks to judge several AI medical image quality tasks 
         return the judge result
     '''
-    tasks_idxs = [23, 26, 27, 28, 29, 33, 34, 35, 36]
+    return True
+
+
+RULES_LIST = [
+    trachea_is_center,
+    thorax_is_symmetry,
+    diaphragm_under_rib10th,
+    clavicles_is_isometry,
+    Sternoclavicular_is_symmetry,
+    thoracic_7th_is_center,
+    spine_parallel_vertical,
+    thoracic1th_35cm2upper,
+    thorax_5cm2edge
+]
+RULES_IDX = [idx-20 for idx in [23, 26, 27, 28, 29, 33, 34, 35, 36]]
+
+def get_optimal_threshold(lms_list, gt_labels_list, task_id):
+    rule_fun = RULES_LIST[task_id]
+    diff_list = []
+    for lms, _ in zip(lms_list, gt_labels_list):
+        _, diff = rule_fun(lms)
+        diff_list.append(diff)
     
+    fpr, tpr, thresholds = roc_curve(gt_labels_list, diff_list)
+
+    def Find_Optimal_Cutoff(TPR, FPR, threshold):
+        y = TPR - FPR
+        Youden_index = np.argmax(y)  # Only the first occurrence is returned.
+        optimal_threshold = threshold[Youden_index]
+        point = [FPR[Youden_index], TPR[Youden_index]]
+        return optimal_threshold, point
+    optimal_threshold, _ = Find_Optimal_Cutoff(fpr, tpr, thresholds)
+    return optimal_threshold
+
+if __name__ == "__main__":
     
+    imglist_path = sys.argv[1]
+    lms_path     = sys.argv[2]
+
+    filter_imglist, filter_metas, filter_lms = merge_lms_metas(imglist_path, lms_path)
+    optimal_threshold_list = []
+    for task_idx in range(len(RULES_LIST)):
+        
+        gt_labels = [ int(metas[RULES_IDX[task_idx]]) for metas in filter_metas ]
+        optimal_threshold = get_optimal_threshold(filter_lms, gt_labels, 0)
+        optimal_threshold_list.append(optimal_threshold)
