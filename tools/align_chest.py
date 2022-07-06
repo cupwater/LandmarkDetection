@@ -1,7 +1,7 @@
 '''
 Author: Peng Bo
 Date: 2022-06-29 14:00:46
-LastEditTime: 2022-07-06 01:34:46
+LastEditTime: 2022-07-06 10:37:01
 Description: 
 
 '''
@@ -92,10 +92,10 @@ def warp_and_crop_face(src_img, facial_pts, reference_pts, raw_lms=None, crop_si
 
 
 if __name__ == "__main__":
-    img_path = sys.argv[1]
-    lms_path = sys.argv[2]
-    prefix   = sys.argv[3]
-    out_prefix = sys.argv[4]
+    img_path    = sys.argv[1]
+    lms_path    = sys.argv[2]
+    prefix      = sys.argv[3]
+    out_prefix  = sys.argv[4]
 
     img_list = open(img_path).readlines()
     img_list = [line.strip() for line in img_list]
@@ -127,7 +127,7 @@ if __name__ == "__main__":
     aligned_lms_list[:, :, 1] = aligned_lms_list[:, :, 1]/IMG_SIZE[1]
     aligned_lms_list = aligned_lms_list.reshape(len(img_list), -1)
 
-    save_path = os.path.join(out_prefix, os.path.basename(lms_path))
+    save_path = os.path.join(out_prefix, os.path.basename(lms_path).split('.')[0] + '_aligned.txt')
     np.savetxt(save_path, aligned_lms_list, fmt='%.3f')
     with open(save_path, 'r+') as f:  
         content = f.read()

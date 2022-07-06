@@ -3,12 +3,13 @@
 '''
 Author: Peng Bo
 Date: 2022-06-27 22:19:33
-LastEditTime: 2022-07-06 01:34:59
+LastEditTime: 2022-07-06 12:24:01
 Description: Use the landmarks to judge AI quality tasks
 
 '''
 
 import sys
+import os
 import pdb
 import numpy as np
 import math
@@ -27,7 +28,7 @@ semantic2idx = {
     'Lungapex_L':               6,
     'Lungapex_R':               7,
     'RIb_10th_L':               8,
-    'Rib_10th_R':               9,
+    'RIb_10th_R':               9,
     'Rib_7th_L1':               10,
     'Rib_7th_L2':               11,
     'Rib_7th_R1':               12,
@@ -69,7 +70,8 @@ def trachea_is_center(lms, threshold=5):
     Trachea_lms = lms[semantic2idx['Trachea']]
     Clavicles_L_lms = lms[semantic2idx['Clavicles_L']]
     Clavicles_R_lms = lms[semantic2idx['Clavicles_R']]
-    diff = _symmetry_by_3points_([Trachea_lms, Clavicles_L_lms, Clavicles_R_lms], threshold)
+    diff = _symmetry_by_3points_(
+        [Trachea_lms, Clavicles_L_lms, Clavicles_R_lms], threshold)
     return diff < threshold, diff
 
 
@@ -100,9 +102,10 @@ def diaphragm_under_rib10th(lms, threshold=5):
     '''
     Costophrenic_height = (lms[semantic2idx['Costophrenic_angle_L2']]
                            [1] + lms[semantic2idx['Costophrenic_angle_R2']][1]) / 2
+    
     RIb_10th_height = (lms[semantic2idx['RIb_10th_L']]
                        [1] + lms[semantic2idx['RIb_10th_R']][1]) / 2
-    
+
     diff = Costophrenic_height - RIb_10th_height
     return diff > threshold, diff
 
@@ -126,8 +129,8 @@ def Sternoclavicular_is_symmetry(lms, threshold=5):
     Thoracic_1th_lms = lms[semantic2idx['Thoracic_1th']]
     Sternoclavicular_L_lms = lms[semantic2idx['Sternoclavicular_joint_L']]
     Sternoclavicular_R_lms = lms[semantic2idx['Sternoclavicular_joint_R']]
-    diff = _symmetry_by_3points_([Thoracic_1th_lms, Sternoclavicular_L_lms, \
-            Sternoclavicular_R_lms], threshold)
+    diff = _symmetry_by_3points_([Thoracic_1th_lms, Sternoclavicular_L_lms,
+                                  Sternoclavicular_R_lms], threshold)
     return diff < threshold, diff
 
 
@@ -145,24 +148,24 @@ def thoracic_7th_is_center(lms, threshold=5):
 
 def spine_parallel_vertical(lms, threshold=3):
     '''
-        use {thoracic_1th, spine_lowest} to judge whether spine is parallel along with the vertical axis of the chest image
+        use {Thoracic_1th, Spine_lowest} to judge whether spine is parallel along with the vertical axis of the chest image
         return True if yes, False for no 
     '''
-    thoracic_1th_lms = lms[semantic2idx['thoracic_1th']]
-    spine_lowest_lms = lms[semantic2idx['spine_lowest']]
-    spine_vec = thoracic_1th_lms - spine_lowest_lms
+    thoracic_1th_lms = lms[semantic2idx['Thoracic_1th']]
+    spine_lowest_lms = lms[semantic2idx['Spine_lowest']]
+    spine_vec = [thoracic_1th_lms[0] - spine_lowest_lms[0], thoracic_1th_lms[1] - spine_lowest_lms[1]]
     angle_yaxis = math.atan(spine_vec[0] / spine_vec[1])
-    
+
     return angle_yaxis < threshold, angle_yaxis
 
 
 def thoracic1th_35cm2upper(lms, threshold=1, cm_per_pixel=1):
     '''
-        use thoracic_1th to judge whether the distance between thoracic_1th and upper is about 3~5cm.
+        use Thoracic_1th to judge whether the distance between Thoracic_1th and upper is about 3~5cm.
         return True if yes, False for no 
     '''
-    thoracic_1th_lms = lms[semantic2idx['thoracic_1th']]
-    diff  = thoracic_1th_lms[1] * cm_per_pixel - 4
+    thoracic_1th_lms = lms[semantic2idx['Thoracic_1th']]
+    diff = thoracic_1th_lms[1] * cm_per_pixel - 4
     return diff < threshold, diff
 
 
@@ -203,13 +206,14 @@ RULES_LIST = [
 ]
 RULES_IDX = [idx-20 for idx in [23, 26, 27, 28, 29, 33, 34, 35, 36]]
 
+
 def get_optimal_threshold(lms_list, gt_labels_list, task_id):
     rule_fun = RULES_LIST[task_id]
     diff_list = []
     for lms, _ in zip(lms_list, gt_labels_list):
         _, diff = rule_fun(lms)
         diff_list.append(diff)
-    
+
     fpr, tpr, thresholds = roc_curve(gt_labels_list, diff_list)
 
     def Find_Optimal_Cutoff(TPR, FPR, threshold):
@@ -219,17 +223,44 @@ def get_optimal_threshold(lms_list, gt_labels_list, task_id):
         point = [FPR[Youden_index], TPR[Youden_index]]
         return optimal_threshold, point
     optimal_threshold, _ = Find_Optimal_Cutoff(fpr, tpr, thresholds)
-    return optimal_threshold
+    return optimal_threshold, fpr, tpr, thresholds
+
+
+def get_accuracy(lms_list, gt_labels_list, task_id, threshold):
+    rule_fun = RULES_LIST[task_id]
+    pred_list = []
+    correct_num = 0
+    for lms, gt in zip(lms_list, gt_labels_list):
+        pred, _ = rule_fun(lms, threshold)
+        pred_list.append(pred)
+        if pred == gt:
+            correct_num += 1
+    return 1.0*correct_num / len(gt_labels_list)
+    
+
 
 if __name__ == "__main__":
-    
-    imglist_path = sys.argv[1]
-    lms_path     = sys.argv[2]
 
-    filter_imglist, filter_metas, filter_lms = merge_lms_metas(imglist_path, lms_path)
+    imglist_path = sys.argv[1]
+    lms_path = sys.argv[2]
+
+    filter_imglist, filter_metas, filter_lms = merge_lms_metas(
+        imglist_path, lms_path)
     optimal_threshold_list = []
+
+    accuracies = []
     for task_idx in range(len(RULES_LIST)):
-        
-        gt_labels = [ int(metas[RULES_IDX[task_idx]]) for metas in filter_metas ]
-        optimal_threshold = get_optimal_threshold(filter_lms, gt_labels, 0)
+        gt_labels = [int(metas[RULES_IDX[task_idx]]) for metas in filter_metas]
+        optimal_threshold, fpr, tpr, thresholds = get_optimal_threshold(
+            filter_lms, gt_labels, 0)
         optimal_threshold_list.append(optimal_threshold)
+        acc = get_accuracy(filter_lms, gt_labels, task_idx, optimal_threshold)
+        accuracies.append(acc)
+
+    save_path = os.path.join(os.path.dirname(
+        lms_path), 'optimal_thresholds.txt')
+    np.savetxt(save_path, np.array(optimal_threshold_list), fmt='%.3f')
+
+    save_path = os.path.join(os.path.dirname(
+        lms_path), 'accuracies.txt')
+    np.savetxt(save_path, np.array(accuracies), fmt='%.3f')

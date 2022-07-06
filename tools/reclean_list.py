@@ -1,7 +1,7 @@
 '''
 Author: Peng Bo
 Date: 2022-06-29 08:49:31
-LastEditTime: 2022-06-29 13:57:25
+LastEditTime: 2022-07-06 10:41:10
 Description: 
 
 '''
@@ -28,10 +28,10 @@ if __name__ == "__main__":
             clean_img_list.append(imgpath)
             clean_lms_list.append(lms.strip())
 
-    save_imglist_path = os.path.join(os.path.dirname(img_path), os.path.basename(img_path).split('.')[0] + '_clean.txt')
+    save_imglist_path = os.path.join(os.path.dirname(img_path) + '_clean', os.path.basename(img_path))
     with open(save_imglist_path, 'w') as f:
         f.write("\n".join(clean_img_list))
-    save_lmslist_path = os.path.join(os.path.dirname(lms_path), os.path.basename(lms_path).split('.')[0] + '_clean.txt')
+    save_lmslist_path = os.path.join(os.path.dirname(lms_path) + '_clean', os.path.basename(lms_path))
     with open(save_lmslist_path, 'w') as f:
         clean_lms_list = [str(len(clean_lms_list))] + clean_lms_list
         f.write("\n".join(clean_lms_list))
