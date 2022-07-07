@@ -3,7 +3,7 @@
 '''
 Author: Peng Bo
 Date: 2022-06-27 22:19:33
-LastEditTime: 2022-07-06 12:24:01
+LastEditTime: 2022-07-07 09:19:14
 Description: Use the landmarks to judge AI quality tasks
 
 '''
@@ -13,7 +13,7 @@ import os
 import pdb
 import numpy as np
 import math
-from sklearn.metrics import roc_curve
+from sklearn.metrics import roc_curve, auc
 
 from tools.parse_xlsx import merge_lms_metas
 
@@ -215,15 +215,15 @@ def get_optimal_threshold(lms_list, gt_labels_list, task_id):
         diff_list.append(diff)
 
     fpr, tpr, thresholds = roc_curve(gt_labels_list, diff_list)
-
+    roc_auc = auc(fpr, tpr)
     def Find_Optimal_Cutoff(TPR, FPR, threshold):
         y = TPR - FPR
         Youden_index = np.argmax(y)  # Only the first occurrence is returned.
-        optimal_threshold = threshold[Youden_index]
-        point = [FPR[Youden_index], TPR[Youden_index]]
+        optimal_threshold = round(threshold[Youden_index], 3)
+        point = [round(FPR[Youden_index], 3), TPR[Youden_index]]
         return optimal_threshold, point
-    optimal_threshold, _ = Find_Optimal_Cutoff(fpr, tpr, thresholds)
-    return optimal_threshold, fpr, tpr, thresholds
+    optimal_threshold, point = Find_Optimal_Cutoff(tpr, fpr, thresholds)
+    return optimal_threshold, roc_auc, fpr, tpr, thresholds
 
 
 def get_accuracy(lms_list, gt_labels_list, task_id, threshold):
@@ -248,14 +248,20 @@ if __name__ == "__main__":
         imglist_path, lms_path)
     optimal_threshold_list = []
 
-    accuracies = []
+    accuracies    = []
+    roc_aucs_list = []
     for task_idx in range(len(RULES_LIST)):
         gt_labels = [int(metas[RULES_IDX[task_idx]]) for metas in filter_metas]
-        optimal_threshold, fpr, tpr, thresholds = get_optimal_threshold(
-            filter_lms, gt_labels, 0)
+        optimal_threshold, roc_auc, fpr, tpr, thresholds = get_optimal_threshold(
+            filter_lms, gt_labels, task_idx)
         optimal_threshold_list.append(optimal_threshold)
         acc = get_accuracy(filter_lms, gt_labels, task_idx, optimal_threshold)
         accuracies.append(acc)
+        roc_aucs_list.append(roc_auc)
+
+    save_path = os.path.join(os.path.dirname(
+        lms_path), 'roc_auc.txt')
+    np.savetxt(save_path, np.array(roc_aucs_list), fmt='%.3f')
 
     save_path = os.path.join(os.path.dirname(
         lms_path), 'optimal_thresholds.txt')
