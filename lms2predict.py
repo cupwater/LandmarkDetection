@@ -3,7 +3,7 @@
 '''
 Author: Peng Bo
 Date: 2022-06-27 22:19:33
-LastEditTime: 2022-07-09 16:08:04
+LastEditTime: 2022-07-09 17:26:31
 Description: Use the landmarks to judge AI quality tasks
 
 '''
@@ -329,7 +329,7 @@ def gen_labels(lms_list, anno_labels_list, task_idx, threshold):
 
 def get_imglist_lms_metas(imglist_path, lms_path, metas_path):
     imglist = open(imglist_path).readlines()
-    imglist = [line.strip().split('/')[-1] for line in imglist]
+    imglist = [line.strip()for line in imglist]
     lms_list = []
     with open(lms_path) as fin:
         lines = fin.readlines()[1:]

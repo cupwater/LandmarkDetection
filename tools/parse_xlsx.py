@@ -1,7 +1,7 @@
 '''
 Author: Peng Bo
 Date: 2022-04-24 19:21:59
-LastEditTime: 2022-07-07 15:45:58
+LastEditTime: 2022-07-09 17:30:27
 Description: 
 
 '''
@@ -43,7 +43,7 @@ def parse_xlsx_fun(xlsx_path):
 
 def merge_lms_metas(imglist_path, lms_path, xlsx_path='./data/callout_summary.xlsx'):
     imglist = open(imglist_path).readlines()
-    imglist = [line.strip().split('/')[-1] for line in imglist]
+    imglist = [line.strip() for line in imglist]
     lms_list = []
     with open(lms_path) as fin:
         lines = fin.readlines()[1:]
@@ -63,17 +63,18 @@ def merge_lms_metas(imglist_path, lms_path, xlsx_path='./data/callout_summary.xl
     nofilter_imglist = []
     nofilter_lms = []
 
-    for imgname, lms in zip(imglist, lms_list):
+    for imgname_path, lms in zip(imglist, lms_list):
         valid_is_lms = [1 if p[0] > 0 and p[1] > 0 else 0 for p in lms]
         valid_is_lms = set(valid_is_lms)
+        imgname = imgname_path.split('/')[-1]
         if imgname in whole_img_list:
             idx = whole_img_list.index(imgname)
             if 0 not in valid_is_lms:
                 filter_metas.append(whole_meta_list[idx])
-                filter_imglist.append(imgname)
+                filter_imglist.append(imgname_path)
                 filter_lms.append(lms)
             nofilter_metas.append(whole_meta_list[idx])
-            nofilter_imglist.append(imgname)
+            nofilter_imglist.append(imgname_path)
             nofilter_lms.append(lms)
 
     return filter_imglist, filter_metas, filter_lms, \
