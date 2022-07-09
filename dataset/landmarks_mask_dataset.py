@@ -84,6 +84,11 @@ class ChestLandmarkMaskDataset(Dataset):
             img = translate(img, [offset_x, offset_y])
             lms_heatmap = translate(lms_heatmap, [offset_x, offset_y])
 
+        if np.max(img) > 1:
+            img = (img-127.5) / 127.5
+        else:
+            img = (img-0.5)*2
+
         translate_pos = [ (_x+offset_x, _y+offset_y) for (_x,_y) in rotate_pos]
         lms_mask = np.ones(len(translate_pos))
 

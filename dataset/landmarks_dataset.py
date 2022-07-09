@@ -83,6 +83,11 @@ class ChestLandmarkDataset(Dataset):
             img = translate(img, [offset_x, offset_y])
             lms_heatmap = translate(lms_heatmap, [offset_x, offset_y])
 
+        if np.max(img) > 1:
+            img = (img-127.5) / 127.5
+        else:
+            img = (img-0.5)*2
+
         return torch.FloatTensor(img), torch.FloatTensor(lms_heatmap)
 
     def __len__(self):

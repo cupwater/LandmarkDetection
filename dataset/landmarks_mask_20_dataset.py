@@ -7,7 +7,7 @@ import math
 import torch
 from torch.utils.data import Dataset
 
-from .util import gaussianHeatmap, rotate, translate
+from util import gaussianHeatmap, rotate, translate
 
 __all__ = ['Chest20LandmarkMaskDataset']
 
@@ -79,6 +79,11 @@ class Chest20LandmarkMaskDataset(Dataset):
             img = translate(img, [offset_x, offset_y])
             lms_heatmap = translate(lms_heatmap, [offset_x, offset_y])
 
+        if np.max(img) > 1:
+            img = (img-127.5) / 127.5
+        else:
+            img = (img-0.5)*2
+
         translate_pos = [ (_x+offset_x, _y+offset_y) for (_x,_y) in rotate_pos]
         lms_mask = np.ones(len(translate_pos))
 
@@ -111,17 +116,17 @@ class Chest20LandmarkMaskDataset(Dataset):
 
 if __name__ == "__main__":
     prefix = '../data/26_landmarks'
-    img_list = '../data/imglist_filter_train.txt'
-    meta = '../data/lms_filter_train.txt'
+    img_list = '../data/withmask_clean/imglist_anno.txt'
+    meta = '../data/withmask_clean/lms_anno.txt'
 
     transform_list = {'rotate_angle': 10, 'offset': [10,10]}
     chest_dataset = Chest20LandmarkMaskDataset(img_list, meta, transform_list, prefix)
 
     for i in range(chest_dataset.__len__()):
         image, lms_heatmap, lms_mask = chest_dataset.__getitem__(i)
-
         image, lms_heatmap = image.numpy(), lms_heatmap.numpy()
-        print(f'max: {np.max(image)}, min:{np.min(image)}')
+        print(f'max: {np.max(image)}, min:{np.min(image)}, mean:{np.mean(image)}')
+
         image = np.transpose(image, (1,2,0)) * 255
         image = image.astype(np.uint8)
         image = cv2.merge([image[:,:,0],image[:,:,0],image[:,:,0]])
@@ -134,7 +139,7 @@ if __name__ == "__main__":
         #     cv2.circle(lms_heatmap, (x,y), 1, (255,0,0), 1)
         cv2.imshow('heatmap', lms_heatmap)
         
-        # for (x,y) in transform_pos:
+        # for (x,y) in translate_pos:
         #     cv2.circle(image, (x,y), 4, (255,0,0), 2)
         cv2.imshow('image', image)
         
