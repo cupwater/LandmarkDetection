@@ -1,9 +1,3 @@
-'''
-Author: Peng Bo
-Date: 2022-05-14
-Description: Landmarks Detection dataset
-
-'''
 import os
 import numpy as np
 import cv2
@@ -15,10 +9,10 @@ from torch.utils.data import Dataset
 
 from .util import gaussianHeatmap, rotate, translate
 
-__all__ = ['Chest6LandmarkMaskDataset']
+__all__ = ['Chest20LandmarkMaskDataset']
 
 
-class Chest6LandmarkMaskDataset(Dataset):
+class Chest20LandmarkMaskDataset(Dataset):
 
     def __init__(self, img_list, meta, transform_paras, prefix='data/', img_size=(512, 512), sigma=5):
 
@@ -28,7 +22,7 @@ class Chest6LandmarkMaskDataset(Dataset):
         # read img_list and metas
         self.img_list = [l.strip() for l in open(img_list).readlines()]
         self.img_data_list = self.__readAllData__()
-        self.idx_of_6lms = [2, 3, 4, 5, 6, 7]
+        self.idx_of_lms = list(range(14)) + list(range(20, 26))
         self.lms_list = [[float(i) for i in v.strip().split(' ')]
                       for v in open(meta).readlines()[1:]]
         self.genHeatmap = gaussianHeatmap(sigma, dim=len(img_size))
@@ -50,7 +44,7 @@ class Chest6LandmarkMaskDataset(Dataset):
         # get the heatmap of landmark in image
         lms = self.lms_list[index]
         lms = [ (int(lms[i]*w), int(lms[i+1]*h)) for i in range(0, int(len(lms)), 2)]
-        lms = [lms[idx] for idx in self.idx_of_6lms]
+        lms = [lms[idx] for idx in self.idx_of_lms]
         lms_heatmap = [self.genHeatmap((y,x), (w, h)) for (x,y) in lms]
         lms_heatmap = np.array(lms_heatmap)
         
@@ -121,7 +115,7 @@ if __name__ == "__main__":
     meta = '../data/lms_filter_train.txt'
 
     transform_list = {'rotate_angle': 10, 'offset': [10,10]}
-    chest_dataset = Chest6LandmarkMaskDataset(img_list, meta, transform_list, prefix)
+    chest_dataset = Chest20LandmarkMaskDataset(img_list, meta, transform_list, prefix)
 
     for i in range(chest_dataset.__len__()):
         image, lms_heatmap, lms_mask = chest_dataset.__getitem__(i)
