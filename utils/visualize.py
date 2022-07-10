@@ -136,7 +136,8 @@ def get_landmarks_from_heatmap(pred_heatmap):
 
 
 def visualize_heatmap(input, landmarks):
-    img = np.transpose(input.cpu().numpy())[:,:,0]
+    # img = np.transpose(input.cpu().numpy())[:,:,0]
+    img = input.cpu().numpy()[:,:,0]
     img = 255*(img-np.min(img)) / (np.max(img) - np.min(img))
     img = img.astype(np.uint8)
     img = cv2.merge([img, img, img])
