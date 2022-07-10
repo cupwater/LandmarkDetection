@@ -8,6 +8,7 @@ import os
 import shutil
 import time
 import yaml
+import numpy as np
 
 import torch
 import torch.optim as optim
@@ -107,7 +108,14 @@ def main(config_file):
     if args.visualize:
         checkpoints = torch.load(os.path.join(common_config['save_path'], 'checkpoint.pth.tar'))
         model.load_state_dict(checkpoints['state_dict'], False)
-        test(testloader, model, criterion, use_cuda, common_config, visualize=args.visualize)
+        _, _, landmarks_array = test(testloader, model, criterion, use_cuda, common_config, visualize=args.visualize)
+        save_folder = os.path.join(common_config['save_path'], 'results/')
+        save_path = os.path.join(save_folder, 'pred_landmarks.txt')
+        np.savetxt(save_path, landmarks_array, fmt='%.3f')
+        with open(save_path, 'r+') as f:
+            content = f.read()
+            f.seek(0, 0)
+            f.write(str(landmarks_array.shape[0]) + '\n' + content)
         return
 
     # Creates a GradScaler once at the beginning of training.
@@ -118,7 +126,7 @@ def main(config_file):
             print('\nEpoch: [%d | %d] LR: %f' %
                 (epoch + 1, common_config['epoch'], state['lr']))
         train_loss, ep_train_loss = train(trainloader, model, criterion, optimizer, use_cuda, scaler, scheduler)
-        test_loss, ep_test_loss  = test(testloader, model, criterion, use_cuda, common_config, scaler, args.visualize)
+        test_loss, ep_test_loss, _  = test(testloader, model, criterion, use_cuda, common_config, scaler, args.visualize)
         # save model
         is_best = test_loss < best_loss
         best_loss = min(test_loss, best_loss)
@@ -207,8 +215,9 @@ def test(testloader, model, criterion, use_cuda, common_config, scaler=None, vis
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
-
     end = time.time()
+    landmarks_list = []
+
     for batch_idx, datas in enumerate(testloader):
         # measure data loading time
         data_time.update(time.time() - end)
@@ -245,6 +254,7 @@ def test(testloader, model, criterion, use_cuda, common_config, scaler=None, vis
                 visualize_img = visualize_heatmap(inputs[i], landmarks)
                 save_path = os.path.join(save_folder, str(batch_idx*inputs.size(0) + i)+'.jpg')
                 cv2.imwrite(save_path, visualize_img)
+                landmarks_list.append(landmarks)
         
         losses.update(loss.item(), inputs.size(0))
         if int(os.environ['RANK']) == 0:
@@ -253,7 +263,12 @@ def test(testloader, model, criterion, use_cuda, common_config, scaler=None, vis
         batch_time.update(time.time() - end)
         end = time.time()
 
-    return losses.avg, loss.item()
+    if visualize:
+        landmarks_array = np.array(landmarks_list).reshape(
+            len(landmarks_list, -1))
+        return losses.avg, loss.item(), landmarks_array
+    else:
+        return losses.avg, loss.item(), None
 
 
 def save_checkpoint(state, is_best, save_path, filename='checkpoint.pth.tar'):
