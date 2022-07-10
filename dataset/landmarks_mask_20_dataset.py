@@ -7,7 +7,7 @@ import math
 import torch
 from torch.utils.data import Dataset
 
-from util import gaussianHeatmap, rotate, translate
+from .util import gaussianHeatmap, rotate, translate
 
 __all__ = ['Chest20LandmarkMaskDataset']
 

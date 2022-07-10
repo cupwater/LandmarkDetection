@@ -91,8 +91,7 @@ def main(config_file):
     #    weight_decay=common_config['weight_decay'])
 
     if args.visualize:
-        checkpoints = torch.load(os.path.join(
-            common_config['save_path'], 'checkpoint.pth.tar'))
+        checkpoints = torch.load(os.path.join(common_config['save_path'], 'model_best.pth.tar'))
         model.load_state_dict(checkpoints['state_dict'], False)
         _, landmarks_array = validate(
             testloader, model, criterion, use_cuda, common_config, args.visualize)

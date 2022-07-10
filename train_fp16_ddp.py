@@ -106,7 +106,7 @@ def main(config_file):
     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, **common_config[common_config['scheduler_lr']])
 
     if args.visualize:
-        checkpoints = torch.load(os.path.join(common_config['save_path'], 'checkpoint.pth.tar'))
+        checkpoints = torch.load(os.path.join(common_config['save_path'], 'model_best.pth.tar'))
         model.load_state_dict(checkpoints['state_dict'], False)
         _, _, landmarks_array = test(testloader, model, criterion, use_cuda, common_config, visualize=args.visualize)
         save_folder = os.path.join(common_config['save_path'], 'results/')
