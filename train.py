@@ -125,7 +125,7 @@ def main(config_file):
         logger.append([state['lr'], train_loss, test_loss])
         # save model
         is_best = test_loss < best_loss
-        best_loss = max(test_loss, best_loss)
+        best_loss = min(test_loss, best_loss)
         save_checkpoint({
             'epoch': epoch + 1,
             'state_dict': model.state_dict(),
@@ -134,8 +134,8 @@ def main(config_file):
         }, is_best, save_path=common_config['save_path'])
 
     logger.close()
-    print('Best acc:')
-    print(best_acc)
+    print('Best loss:')
+    print(best_loss)
 
 
 def train(trainloader, model, criterion, optimizer, use_cuda, scheduler=None):
@@ -263,7 +263,7 @@ if __name__ == '__main__':
     parser.add_argument('--config-file', type=str,
                         default='experiments/template/landmark_detection_template.yaml')
     parser.add_argument('--visualize', action='store_true')
-    parser.add_argument('--gpu-id', type=str, default='0')
+    parser.add_argument('--gpu-id', type=str, default='0,1,2,3')
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
     main(args.config_file)

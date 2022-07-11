@@ -7,6 +7,8 @@ import numpy as np
 from .misc import *   
 import pdb
 import cv2
+from PIL import Image
+
 
 img_size = 512
 
@@ -141,7 +143,22 @@ def visualize_heatmap(input, landmarks):
     img = 255*(img-np.min(img)) / (np.max(img) - np.min(img))
     img = img.astype(np.uint8)
     img = cv2.merge([img, img, img])
+    # img needs to be rotated 90° by clockwise rotation
+    data_array = Image.fromarray(np.uint8(img))
+    img = np.array(data_array.rotate(270))
+
+
+    with open('/home/ubuntu/zhangjian/code/LandmarkDetection/data/imglist_labels.txt', 'r') as f:
+        labels = f.readlines()
+
     # draw landmarks on image
-    for (x_pos,y_pos) in landmarks:
+    for idx, (x_pos,y_pos) in enumerate(landmarks):
+        # landmark pos needs to be rotated 90° by clockwise rotation
+        tmp = y_pos
+        y_pos = x_pos
+        x_pos = 512 - tmp
         cv2.circle(img, (x_pos,y_pos), 2, (0,0,255), -1)
+        cv2.putText(img, labels[idx].split(' ')[0], (x_pos-20,y_pos+15),  cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 0, 255), 1)
+        # data_array = Image.fromarray(np.uint8(img))
+        # img = np.array(data_array.rotate(270))
     return img
