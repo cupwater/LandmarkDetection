@@ -10,6 +10,8 @@ from torch.nn import Module
 from torch import nn
 from torch.nn import functional as F
 
+import pdb
+
 __all__ = ['L2Loss', 'BCELoss', 'MaskBCELoss', 'MSELoss', 'DiceLoss', 'BCEFocalLoss', 'TorchBCELoss', 'FocalLoss', 'ConfidentMSELoss']
 
 class MSELoss(nn.Module):
@@ -61,11 +63,11 @@ class BCELoss(nn.Module):
 
 
 class MaskBCELoss(nn.Module):
-    def __init__(self):
+    def __init__(self, reduction='sum'):
         super(MaskBCELoss, self).__init__()
         self.pos_weight = 1
         self.eps = 1e-6
-        self.reduction = 'sum'
+        self.reduction = reduction
 
     def forward(self, logits, target, mask):
         # logits: [N, *], target: [N, *]
@@ -76,6 +78,9 @@ class MaskBCELoss(nn.Module):
             loss = torch.mean(torch.mean(loss, dim=(2,3)) * mask)
         elif self.reduction == 'sum':
             loss = torch.sum(torch.sum(loss, dim=(2,3)) * mask)
+        elif self.reduction == 'keep':
+            loss = torch.sum(torch.sum(loss, dim=(2,3)) * mask, dim=0) / torch.sum(mask, dim=0)
+            #loss = torch.sum(torch.sum(loss, dim=(2,3)) * mask, dim=0)
 
         return loss
 

@@ -79,10 +79,10 @@ class OutConv(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, num_classes=2, bilinear=True):
+    def __init__(self, num_classes=2, in_channels=3, bilinear=True):
         super(UNet, self).__init__()
         self.bilinear = bilinear
-        self.in1  = OutConv(3, 64)
+        self.in1  = OutConv(in_channels, 64)
         self.conv = DoubleConv(64, 64)
         self.down1 = Down(64, 128)
         self.down2 = Down(128, 256)

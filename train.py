@@ -10,6 +10,7 @@ import time
 import pdb
 import yaml
 import cv2
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -17,16 +18,15 @@ import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.utils.data as data
-from augmentation.medical_augment import LmsDetectTrainTransform, LmsDetectTestTransform
 
 import models
 import dataset
-from utils import Logger, AverageMeter, mkdir_p, progress_bar, visualize_heatmap, get_landmarks_from_heatmap
+from utils import Logger, AverageMeter, progress_bar, visualize_heatmap, get_landmarks_from_heatmap
 import losses
 
 
 state = {}
-best_loss = 0
+best_loss = 10000
 use_cuda = False
 
 
@@ -37,15 +37,13 @@ def main(config_file):
     with open(config_file) as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
     common_config = config['common']
+    common_config['save_path'] = os.path.dirname(config_file)
 
     state['lr'] = common_config['lr']
-    if not os.path.isdir(common_config['save_path']):
-        mkdir_p(common_config['save_path'])
     use_cuda = torch.cuda.is_available()
 
     augment_config = config['augmentation']
-    # Dataset and Dataloader
-    
+
     data_config = config['dataset']
     print('==> Preparing dataset %s' % data_config['type'])
     # create dataset for training and testing
@@ -53,7 +51,8 @@ def main(config_file):
         data_config['train_list'], data_config['train_meta'], augment_config,
         prefix=data_config['prefix'])
     testset = dataset.__dict__[data_config['type']](
-        data_config['test_list'], data_config['test_meta'], {'rotate_angle': 0, 'offset': [0,0]},
+        data_config['test_list'], data_config['test_meta'], {
+            'rotate_angle': 0, 'offset': [0, 0]},
         prefix=data_config['prefix'])
 
     # create dataloader for training and testing
@@ -68,21 +67,22 @@ def main(config_file):
         num_classes=data_config['num_classes'])
     model = torch.nn.DataParallel(model)
 
+    use_cuda = torch.cuda.is_available()
     if use_cuda:
         model = model.cuda()
     cudnn.benchmark = True
 
-
     # optimizer and scheduler
     criterion = losses.__dict__[config['loss_config']['type']]()
     optimizer = optim.Adam(
-       filter(
-           lambda p: p.requires_grad,
-           model.parameters()),
+        filter(
+            lambda p: p.requires_grad,
+            model.parameters()),
         lr=common_config['lr'],
         weight_decay=common_config['weight_decay'])
-    scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, **common_config[common_config['scheduler_lr']])
-    #optimizer = optim.SGD(
+    scheduler = torch.optim.lr_scheduler.CyclicLR(
+        optimizer, **common_config[common_config['scheduler_lr']])
+    # optimizer = optim.SGD(
     #    filter(
     #        lambda p: p.requires_grad,
     #        model.parameters()),
@@ -91,9 +91,18 @@ def main(config_file):
     #    weight_decay=common_config['weight_decay'])
 
     if args.visualize:
-        checkpoints = torch.load(os.path.join(common_config['save_path'], 'checkpoint.pth.tar'))
+        checkpoints = torch.load(os.path.join(common_config['save_path'], 'model_best.pth.tar'))
         model.load_state_dict(checkpoints['state_dict'], False)
-        validate(testloader, model, criterion, use_cuda, common_config, args.visualize)
+        _, landmarks_array = validate(
+            testloader, model, criterion, use_cuda, common_config, args.visualize)
+        save_folder = os.path.join(common_config['save_path'], 'results/')
+        save_path = os.path.join(save_folder, 'pred_landmarks.txt')
+        np.savetxt(save_path, landmarks_array, fmt='%.3f')
+        with open(save_path, 'r+') as f:
+            content = f.read()
+            f.seek(0, 0)
+            f.write(str(landmarks_array.shape[0]) + '\n' + content)
+
         return
 
     # logger
@@ -110,7 +119,8 @@ def main(config_file):
               (epoch + 1, common_config['epoch'], state['lr']))
         train_loss = train(
             trainloader, model, criterion, optimizer, use_cuda, scheduler)
-        test_loss = validate(testloader, model, criterion, use_cuda, common_config)
+        test_loss, _ = validate(testloader, model, criterion,
+                             use_cuda, common_config)
         # append logger file
         logger.append([state['lr'], train_loss, test_loss])
         # save model
@@ -133,9 +143,9 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scheduler=None):
     model.train()
 
     batch_time = AverageMeter()
-    data_time  = AverageMeter()
-    losses     = AverageMeter()
-    end        = time.time()
+    data_time = AverageMeter()
+    losses = AverageMeter()
+    end = time.time()
 
     for batch_idx, datas in enumerate(trainloader):
         # measure data loading time
@@ -146,7 +156,7 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scheduler=None):
                 masks = masks.cuda()
             masks = torch.autograd.Variable(masks)
         else:
-            inputs, targets= datas 
+            inputs, targets = datas
             masks = None
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
@@ -154,7 +164,8 @@ def train(trainloader, model, criterion, optimizer, use_cuda, scheduler=None):
         targets = torch.autograd.Variable(targets)
         outputs = model(inputs)
 
-        loss = criterion(outputs, targets, masks) / (outputs.size(0)*outputs.size(1))
+        loss = criterion(outputs, targets, masks) / \
+            (outputs.size(0)*outputs.size(1))
         losses.update(loss.item(), inputs.size(0))
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -178,8 +189,10 @@ def validate(testloader, model, criterion, use_cuda, common_config, visualize=Fa
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
-
     end = time.time()
+
+    landmarks_list = []
+
     for batch_idx, datas in enumerate(testloader):
         # measure data loading time
         data_time.update(time.time() - end)
@@ -189,7 +202,7 @@ def validate(testloader, model, criterion, use_cuda, common_config, visualize=Fa
                 masks = masks.cuda()
             masks = torch.autograd.Variable(masks)
         else:
-            inputs, targets= datas 
+            inputs, targets = datas
             masks = None
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
@@ -197,7 +210,8 @@ def validate(testloader, model, criterion, use_cuda, common_config, visualize=Fa
         targets = torch.autograd.Variable(targets)
         # compute output
         outputs = model(inputs)
-        loss = criterion(outputs, targets, masks) / (outputs.size(0)*outputs.size(1))
+        loss = criterion(outputs, targets, masks) / \
+            (outputs.size(0)*outputs.size(1))
         losses.update(loss.item(), inputs.size(0))
 
         if visualize:
@@ -207,15 +221,22 @@ def validate(testloader, model, criterion, use_cuda, common_config, visualize=Fa
             for i in range(inputs.size(0)):
                 landmarks = get_landmarks_from_heatmap(outputs[i].detach())
                 visualize_img = visualize_heatmap(inputs[i], landmarks)
-                save_path = os.path.join(save_folder, str(batch_idx*inputs.size(0) + i)+'.jpg')
+                save_path = os.path.join(save_folder, str(
+                    batch_idx*inputs.size(0) + i)+'.jpg')
                 cv2.imwrite(save_path, visualize_img)
+                landmarks_list.append(landmarks)
 
         progress_bar(batch_idx, len(testloader), 'Loss: %.2f' % (losses.avg))
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
 
-    return losses.avg
+    if visualize:
+        landmarks_array = np.array(landmarks_list).reshape(
+            len(landmarks_list), -1)
+        return losses.avg, landmarks_array
+    else:
+        return losses.avg, None
 
 
 def save_checkpoint(state, is_best, save_path, filename='checkpoint.pth.tar'):

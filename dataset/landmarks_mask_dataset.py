@@ -84,6 +84,11 @@ class ChestLandmarkMaskDataset(Dataset):
             img = translate(img, [offset_x, offset_y])
             lms_heatmap = translate(lms_heatmap, [offset_x, offset_y])
 
+        if np.max(img) > 1:
+            img = (img-127.5) / 127.5
+        else:
+            img = (img-0.5)*2
+
         translate_pos = [ (_x+offset_x, _y+offset_y) for (_x,_y) in rotate_pos]
         lms_mask = np.ones(len(translate_pos))
 
@@ -116,8 +121,8 @@ class ChestLandmarkMaskDataset(Dataset):
 
 if __name__ == "__main__":
     prefix = '../data/26_landmarks'
-    img_list = '../data/imglist_filter_train.txt'
-    meta = '../data/lms_filter_train.txt'
+    img_list = '../data/imglist_withmask_train.txt'
+    meta = '../data/lms_withmask_train.txt'
 
     transform_list = {'rotate_angle': 10, 'offset': [10,10]}
     chest_dataset = ChestLandmarkMaskDataset(img_list, meta, transform_list, prefix)

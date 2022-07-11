@@ -8,12 +8,12 @@ import os
 import shutil
 import time
 import yaml
+import numpy as np
 
 import torch
 import torch.utils.data as data
 import torch.optim as optim
 
-from augmentation.medical_augment import LmsDetectTrainTransform, LmsDetectTestTransform
 import models
 import dataset
 from utils import Logger, AverageMeter, mkdir_p, progress_bar, visualize_heatmap, get_landmarks_from_heatmap
@@ -21,8 +21,8 @@ import losses
 import cv2
 
 state = {}
-best_loss = 0
-use_cuda = True
+best_loss = 10000
+use_cuda = False
 exectime = time.time()
 
 def main(config_file):
@@ -32,9 +32,8 @@ def main(config_file):
     with open(config_file) as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
     common_config = config['common']
+    common_config['save_path'] = os.path.dirname(config_file)
 
-    if not os.path.isdir(common_config['save_path']):
-        mkdir_p(common_config['save_path'])
     # logger
     title = 'Chest landamrks detection using' + \
         common_config['arch']
@@ -45,9 +44,6 @@ def main(config_file):
 
     # initial dataset and dataloader
     augment_config = config['augmentation']
-    # Dataset and Dataloader
-    transform_train = LmsDetectTrainTransform(augment_config['rotate_angle'], augment_config['offset'])
-    transform_test = LmsDetectTestTransform()
     data_config = config['dataset']
     print('==> Preparing dataset %s' % data_config['type'])
     # create dataset for training and testing
@@ -68,8 +64,9 @@ def main(config_file):
     print("==> creating model '{}'".format(common_config['arch']))
 
     model = models.__dict__[common_config['arch']](
-        num_classes=data_config['num_classes'])
+        num_classes=data_config['num_classes'], local_net=common_config['local_net'])
     model = torch.nn.DataParallel(model)
+    use_cuda = torch.cuda.is_available()
     if use_cuda:
         model = model.cuda()
 
@@ -86,9 +83,18 @@ def main(config_file):
     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, **common_config[common_config['scheduler_lr']])
 
     if args.visualize:
-        checkpoints = torch.load(os.path.join(common_config['save_path'], 'checkpoint.pth.tar'))
+        checkpoints = torch.load(os.path.join(common_config['save_path'], 'model_best.pth.tar'))
         model.load_state_dict(checkpoints['state_dict'], False)
-        test(testloader, model, criterion, use_cuda, common_config, visualize=args.visualize)
+        _, _, landmarks_array= test(testloader, model, criterion, use_cuda, common_config, visualize=args.visualize)
+        
+        save_folder = os.path.join(common_config['save_path'], 'results/')
+        save_path = os.path.join(save_folder, 'pred_landmarks.txt')
+        np.savetxt(save_path, landmarks_array, fmt='%.3f')
+        with open(save_path, 'r+') as f:
+            content = f.read()
+            f.seek(0, 0)
+            f.write(str(landmarks_array.shape[0]) + '\n' + content)
+
         return
 
     # Creates a GradScaler once at the beginning of training.
@@ -98,7 +104,7 @@ def main(config_file):
         print('\nEpoch: [%d | %d] LR: %f' %
                 (epoch + 1, common_config['epoch'], state['lr']))
         train_loss, ep_train_loss = train(trainloader, model, criterion, optimizer, use_cuda, scaler, scheduler)
-        test_loss, ep_test_loss = test(testloader, model, criterion, use_cuda, common_config, scaler, args.visualize)
+        test_loss, ep_test_loss, _ = test(testloader, model, criterion, use_cuda, common_config, scaler, args.visualize)
         # save model
         is_best = test_loss < best_loss
         best_loss = min(test_loss, best_loss)
@@ -184,9 +190,9 @@ def test(testloader, model, criterion, use_cuda, common_config, scaler=None, vis
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
-
     end = time.time()
-    index = 0
+    landmarks_list = []
+
     for batch_idx, datas in enumerate(testloader):
         # measure data loading time
         data_time.update(time.time() - end)
@@ -223,6 +229,7 @@ def test(testloader, model, criterion, use_cuda, common_config, scaler=None, vis
                 visualize_img = visualize_heatmap(inputs[i], landmarks)
                 save_path = os.path.join(save_folder, str(batch_idx*inputs.size(0) + i)+'.jpg')
                 cv2.imwrite(save_path, visualize_img)
+                landmarks_list.append(landmarks)
 
         losses.update(loss.item(), inputs.size(0))
         progress_bar(batch_idx, len(testloader), 'Loss: %.2f' % (losses.avg))
@@ -231,7 +238,12 @@ def test(testloader, model, criterion, use_cuda, common_config, scaler=None, vis
         batch_time.update(time.time() - end)
         end = time.time()
 
-    return losses.avg, loss.item()
+    if visualize:
+        landmarks_array = np.array(landmarks_list).reshape(
+            len(landmarks_list, -1))
+        return losses.avg, loss.item(), landmarks_array
+    else:
+        return losses.avg, loss.item(), None
 
 
 def save_checkpoint(state, is_best, save_path, filename='checkpoint.pth.tar'):
